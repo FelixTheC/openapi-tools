@@ -36,6 +36,7 @@ class Method:
     request_schema: Schema
     response_schema: dict[str, Schema]
     tags: list[str]
+    parameters: list[QueryParam]
     request_schema_required: bool = False
 
 
@@ -60,9 +61,6 @@ class OpenAPIDefinition:
 
     def _extract_schemas(self):
         required_schemas = self.__openapi_data["components"]["schemas"]
-        """
-        Order {'type': 'object', 'properties': {'id': {'type': 'integer', 'format': 'int64', 'example': 10}, 'petId': {'type': 'integer', 'format': 'int64', 'example': 198772}, 'quantity': {'type': 'integer', 'format': 'int32', 'example': 7}, 'shipDate': {'type': 'string', 'format': 'date-time'}, 'status': {'type': 'string', 'description': 'Order Status', 'example': 'approved', 'enum': ['placed', 'approved', 'delivered']}, 'complete': {'type': 'boolean'}}, 'xml': {'name': 'order'}}
-        """
         for key, value in required_schemas.items():
             self.created_schemas[key] = Schema(name=key, properties=create_properties(value, required_schemas))
 
@@ -117,6 +115,7 @@ class OpenAPIDefinition:
                         request_schema=request_schema,
                         response_schema=response_schemas,
                         tags=data.get("tags", []),
+                        parameters=create_parameters(data.get("parameters", []), self.created_schemas),
                     )
                 )
             self.paths.append(
@@ -149,7 +148,7 @@ def convert_type(typ: str, value_format: str | None = None):
             return None
 
 
-def create_itemschema(item: dict, existing_schemas: dict = {}) -> Property | Schema:
+def create_item_schema(item: dict, existing_schemas: dict = {}) -> None | Schema | Property:
     """
     :param item: the part after the schema name
     :param existing_schemas: all schemas from the openapi file
@@ -189,9 +188,42 @@ def create_properties(data: dict, existing_schemas: dict = {}) -> list[Property]
             prop.type = enum.Enum
         if prop.type == list:
             items = value.get("items")
-            prop.ref = create_itemschema(items, existing_schemas)
+            prop.ref = create_item_schema(items, existing_schemas)
         if "$ref" in value:
-            prop.ref = create_itemschema(value, existing_schemas)
+            prop.ref = create_item_schema(value, existing_schemas)
 
         properties.append(prop)
     return properties
+
+
+def create_parameters(data: list, existing_schemas: dict = {}) -> list[QueryParam]:
+    res: list[QueryParam] = []
+
+    for obj in data:
+        properties = []
+
+        prop = Property(
+            name="",
+            example=obj["schema"].get("example"),
+            type=convert_type(obj["schema"].get("type", ""), obj["schema"].get("format")),
+            enum_values=obj["schema"].get("enum", []),
+        )
+        if prop.enum_values:
+            prop.type = enum.Enum
+        if prop.type == list:
+            items = obj["schema"].get("items")
+            prop.ref = create_item_schema(items, existing_schemas)
+
+        properties.append(prop)
+        res.append(
+            QueryParam(
+                description=obj.get("description", ""),
+                explode=obj.get("explode", False),
+                position=obj.get("in", "query"),
+                name=obj.get("name", ""),
+                required=obj.get("required", False),
+                schema=Schema(name="", properties=properties),
+            ),
+        )
+
+    return res

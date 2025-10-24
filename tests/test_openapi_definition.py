@@ -3,7 +3,7 @@ import datetime as dt
 import enum
 
 from openapi_reader.reader import read_openapi_schema
-from openapi_reader.schema import OpenAPIDefinition, Property, create_properties
+from openapi_reader.schema import OpenAPIDefinition, Property, create_properties, create_parameters
 
 
 def test_openapi_definition():
@@ -19,6 +19,23 @@ def test_openapi_definition_create_schemas(openapi_yaml):
     assert all(schema in definition.created_schemas for schema in required_schemas)
 
 
+def test_create_parameters():
+    parameters = [
+        {
+            "description": "Status values that need to be considered for filter",
+            "explode": True,
+            "in": "query",
+            "name": "status",
+            "required": False,
+            "schema": {"default": "available", "enum": ["available", "pending", "sold"], "type": "string"},
+        }
+    ]
+    res = create_parameters(parameters, {})
+    assert len(res) == 1
+    assert len(res[0].schema.properties) == 1
+    assert res[0].schema.properties[0].enum_values == ["available", "pending", "sold"]
+
+
 def test_openapi_definition_creates_paths(openapi_yaml):
     definition = OpenAPIDefinition(openapi_yaml)
     definition._extract_schemas()
@@ -26,7 +43,7 @@ def test_openapi_definition_creates_paths(openapi_yaml):
     from pprint import pprint
 
     pprint(definition.paths)
-    assert len(definition.paths) == 8
+    assert len(definition.paths) == 13
     # required_schemas = ["Address", "ApiResponse", "Category", "Customer", "Order", "Pet", "Tag", "User"]
     # assert all(schema in definition.created_schemas for schema in required_schemas)
 
