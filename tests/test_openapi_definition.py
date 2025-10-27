@@ -76,3 +76,13 @@ def test_create_properties():
     ]
     props = create_properties(data)
     assert all(prop in results for prop in props)
+
+
+def test_create_drf_serializers(openapi_yaml):
+    definition = OpenAPIDefinition(openapi_yaml)
+    definition._extract_schemas()
+    definition._extract_paths()
+
+    from openapi_reader.drf import create_serializer_file
+
+    create_serializer_file(definition)
