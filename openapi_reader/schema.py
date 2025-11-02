@@ -1,7 +1,19 @@
 import enum
 import datetime as dt
+import typing
 from dataclasses import dataclass
 from typing import Literal, Optional
+
+from openapi_reader.utils import HTTPResponse, convert_camel_case_to_snake_case
+
+
+class SchemaType(enum.Enum):
+    STRING = "string"
+    INTEGER = "integer"
+    NUMBER = "number"
+    BOOLEAN = "boolean"
+    ARRAY = "array"
+    OBJECT = "object"
 
 
 @dataclass(slots=True)
@@ -10,13 +22,53 @@ class Property:
     example: None | str | int | float | bool | list
     type: object
     enum_values: list  # can be empty
-    ref: Optional["Schema"] = None
+    ref: Optional["Schema"] | Optional["Property"] = None
 
 
 @dataclass(slots=True)
 class Schema:
     name: str
     properties: list[Property]
+    typ: SchemaType
+
+    def get_refs(self) -> list[str]:
+        refs = []
+        for prop in self.properties:
+            if prop.ref:
+                refs.append(prop.ref.name)
+        return refs
+
+    def get_type_hint_str(self) -> str:
+        match self.typ:
+            case SchemaType.STRING:
+                return "str"
+            case SchemaType.INTEGER:
+                return "int"
+            case SchemaType.NUMBER:
+                return "float"
+            case SchemaType.BOOLEAN:
+                return "bool"
+            case SchemaType.ARRAY:
+                if str(self.properties[0].type).lower() == "enum":
+                    return "list[str]"
+                if "list" in str(self.properties[0].type):
+                    if self.properties[0].ref:
+                        if isinstance(self.properties[0].ref, Property):
+                            return f"list[{self.properties[0].ref.type.__name__}]"
+                        else:
+                            return f"list[{self.properties[0].ref.get_type_hint_str()}]"
+                    else:
+                        return "list"
+                return f"list[{str(self.properties[0].type)}]"
+            case SchemaType.OBJECT:
+                return "dict"
+
+
+@dataclass(slots=True)
+class ResponseSchema:
+    required: bool
+    type: SchemaType
+    schema: Schema
 
 
 @dataclass(slots=True)
@@ -34,20 +86,50 @@ class Method:
     operation_id: str
     request_type: Literal["get", "post", "put", "delete"]
     request_schema: Schema
-    response_schema: dict[str, Schema]
+    response_schema: dict[str, ResponseSchema]
     tags: list[str]
     parameters: list[QueryParam]
     request_schema_required: bool = False
 
+    def get_success_response_schema(self) -> Optional[ResponseSchema]:
+        for status_code, schema in self.response_schema.items():
+            if HTTPResponse.OK.value <= int(status_code) <= HTTPResponse.IM_USED.value:
+                return schema
+        return None
+
+    def get_success_error_code(self) -> HTTPResponse:
+        for status_code, schema in self.response_schema.items():
+            if HTTPResponse.OK.value <= int(status_code) <= HTTPResponse.IM_USED.value:
+                return HTTPResponse(int(status_code))
+        return HTTPResponse.OK
+
+    def get_fail_error_code(self) -> HTTPResponse:
+        for status_code, schema in self.response_schema.items():
+            if HTTPResponse.BAD_REQUEST.value <= int(status_code) <= HTTPResponse.INTERNAL_SERVER_ERROR.value:
+                return HTTPResponse(int(status_code))
+        return HTTPResponse.BAD_REQUEST
+
 
 @dataclass(slots=True)
-class Path:
+class ApiPath:
     path: str
     methods: list[Method]
 
+    def get_query_params(self) -> list[str]:
+        res = []
+        for method in self.methods:
+            res.extend(
+                [
+                    f"{convert_camel_case_to_snake_case(param.name)}: {param.schema.get_type_hint_str()}"
+                    for param in method.parameters
+                    if param.position == "query"
+                ]
+            )
+        return res
+
 
 class OpenAPIDefinition:
-    paths: list[Path]
+    paths: list[ApiPath]
     # to check if a schema already exists which we can reuse directly
     created_schemas: dict[str, Schema]
     __openapi_data: dict
@@ -62,7 +144,9 @@ class OpenAPIDefinition:
     def _extract_schemas(self):
         required_schemas = self.__openapi_data["components"]["schemas"]
         for key, value in required_schemas.items():
-            self.created_schemas[key] = Schema(name=key, properties=create_properties(value, required_schemas))
+            self.created_schemas[key] = Schema(
+                name=key, properties=create_properties(value, required_schemas), typ=SchemaType(value["type"])
+            )
 
     def _extract_paths(self):
         required_paths = self.__openapi_data["paths"]
@@ -91,6 +175,8 @@ class OpenAPIDefinition:
                                 enum_values=request_schema_def.get("enum", []),
                             )
                         ],
+                        # TODO fix me
+                        typ=SchemaType(request_schema_def.get("type", "object")),
                     )
                 else:
                     request_schema = self.created_schemas[request_schema_name]
@@ -98,15 +184,43 @@ class OpenAPIDefinition:
                 response_schemas = {}
                 for status_code, response in responses.items():
                     if "content" in response:
-                        response_schema = (
-                            response["content"]
-                            .get("application/json", {})
-                            .get("schema", {})
-                            .get("$ref", "")
-                            .split("/")[-1]
-                        )
+                        resp_content = response["content"].get("application/json", {}).get("schema", {})
+                        if "$ref" in resp_content:
+                            schema = self.created_schemas[resp_content.get("$ref", "").split("/")[-1]]
+                            response_schema = ResponseSchema(
+                                required=True,
+                                type=SchemaType("object"),
+                                schema=schema,
+                            )
+                        else:
+                            resp_schema_typ = resp_content.get("type", "")
+                            try:
+                                schema = self.created_schemas[resp_content.get("items").get("$ref", "").split("/")[-1]]
+                            except AttributeError:
+                                props = []
+                                for key, val in resp_content.items():
+                                    if key == "type":
+                                        continue
+                                    props.append(
+                                        Property(
+                                            name="", example=val.get("default"), type=val.get("type"), enum_values=[]
+                                        )
+                                    )
+                                response_schema = ResponseSchema(
+                                    required=True,
+                                    type=SchemaType(resp_schema_typ),
+                                    schema=Schema(name=request_schema_name, properties=props, typ=SchemaType("object")),
+                                )
+                            else:
+                                response_schema = ResponseSchema(
+                                    required=True,
+                                    type=SchemaType(resp_schema_typ),
+                                    schema=schema,
+                                )
                     else:
                         response_schema = None
+                    if status_code == "default":
+                        status_code = HTTPResponse.OK.value
                     response_schemas[status_code] = response_schema
                 method_data.append(
                     Method(
@@ -119,7 +233,7 @@ class OpenAPIDefinition:
                     )
                 )
             self.paths.append(
-                Path(
+                ApiPath(
                     path=path,
                     methods=method_data,
                 )
@@ -157,9 +271,13 @@ def create_item_schema(item: dict, existing_schemas: dict = {}) -> None | Schema
     key, val = list(item.items())[0]
     if key == "$ref":
         schema_name = val.split("/")[-1]
+        existing_schema: dict = existing_schemas[schema_name]
+
         try:
             return Schema(
-                name=schema_name, properties=create_properties(existing_schemas[schema_name], existing_schemas)
+                name=schema_name,
+                properties=create_properties(existing_schema, existing_schemas),
+                typ=existing_schema["type"],
             )
         except KeyError:
             # should never happen
@@ -222,7 +340,7 @@ def create_parameters(data: list, existing_schemas: dict = {}) -> list[QueryPara
                 position=obj.get("in", "query"),
                 name=obj.get("name", ""),
                 required=obj.get("required", False),
-                schema=Schema(name="", properties=properties),
+                schema=Schema(name="", properties=properties, typ=SchemaType(obj["schema"].get("type", "object"))),
             ),
         )
 
