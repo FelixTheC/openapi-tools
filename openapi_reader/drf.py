@@ -1,15 +1,13 @@
-# function which creates serializer class with validators from a list `Schema` objects
-# function which creates the request and response objects from a list of `Method` objects
 from pathlib import Path
 from string import Template
 from typing import Optional
-from unittest import case
+import tempfile
 
 import black
 import isort
 
 from openapi_reader.schema import OpenAPIDefinition, Schema, Property, Method, ResponseSchema, SchemaType, ApiPath
-from openapi_reader.utils import HTTPResponse, convert_camel_case_to_snake_case
+from openapi_reader.utils import HTTPResponse, convert_camel_case_to_snake_case, to_class_name
 
 SERIALIZERS = {
     "str": "serializers.CharField()",  # can be extended
@@ -24,6 +22,7 @@ SERIALIZERS = {
 INITIAL_FILE_INPUTS = ["from rest_framework import serializers"]
 INITIAL_VIEW_FILE_INPUTS = [
     "import typing",
+    "from django.http import HttpResponse",
     "from rest_framework.response import Response",
     "from rest_framework import status as drf_status",
     "from rest_framework.views import APIView",
@@ -198,7 +197,9 @@ def schema_to_drf(schema: Schema) -> str:
 
 
 # maybe return path to file instead of `None`
-def create_serializer_file(definition: OpenAPIDefinition) -> None:
+def create_serializer_file(
+    definition: OpenAPIDefinition, *, export_folder: Optional[Path] = None, use_tempdir: bool = False
+) -> None:
     schemas: list[str] = []
     for schema_name, schema in definition.created_schemas.items():
         schema_body = schema_to_drf(schema)
@@ -218,7 +219,13 @@ class {schema_name}Serializer(serializers.Serializer):
         else:
             schemas.insert(0, schema_def)
 
-    export_file = Path(__file__).parent / "serializers.py"
+    if use_tempdir:
+        tmp_file = tempfile.NamedTemporaryFile("w+", suffix="_serializer.py", delete_on_close=False)
+        tmp_file.close()
+        export_file = Path(tmp_file.name)
+    else:
+        export_file = export_folder / "serializers.py" if export_folder else Path(__file__).parent / "serializers.py"
+
     with export_file.open("w") as fp:
         for head in INITIAL_FILE_INPUTS:
             fp.write(head)
@@ -229,6 +236,11 @@ class {schema_name}Serializer(serializers.Serializer):
 
     isort.api.sort_file(export_file)
     black.format_file_in_place(export_file, mode=black.Mode(), fast=False, write_back=black.WriteBack.YES)
+
+    if use_tempdir:
+        with export_file.open("r") as fp:
+            for line in fp.readlines():
+                print(line)
 
 
 get_request_template = Template("""
@@ -270,6 +282,7 @@ patch_request_template = Template("""
 
 delete_request_template = Template("""
     if request.method == "DELETE":
+        $serializer
         try:
             obj.delete()
         except IntegrityError:
@@ -293,10 +306,26 @@ def create_request_and_response_objects(method: Method) -> str:
                 else:
                     example_data = "data = {}"
                     schema_txt = f"serializer = {response_schema.schema.name}Serializer(data)"
+                if method.contains_query_params:
+                    example_data = f"""
+        serializer = {to_class_name(method.operation_id)}Serializer(data=request.query_params)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status={to_drf_status_code(fail_error_code)})
+        
+        {example_data}
+"""
+
                 func_txt = get_request_template.substitute(data=example_data, serializer=schema_txt)
         case "post":
             request_schema = method.request_schema
-            request_schema_txt = f"serializer = {request_schema.name}Serializer(data=request.data)"
+            if request_schema.name:
+                request_schema_txt = f"serializer = {request_schema.name}Serializer(data=request.data)"
+            elif method.contains_query_params:
+                request_schema_txt = (
+                    f"serializer = {to_class_name(method.operation_id)}Serializer(data=request.query_params)"
+                )
+            else:
+                request_schema_txt = "serializer = Serializer(data=request.data)"
             success_response_txt = f"return Response(serializer.data, status={to_drf_status_code(success_error_code)})"
             error_response_txt = f"return Response(serializer.errors, status={to_drf_status_code(fail_error_code)})"
             func_txt = post_request_template.substitute(
@@ -319,11 +348,15 @@ def create_request_and_response_objects(method: Method) -> str:
                 serializer=request_schema_txt, response_success=success_response_txt, response_error=error_response_txt
             )
         case "delete":
-            success_response_txt = f"return Response(serializer.data, status={to_drf_status_code(success_error_code)})"
-            error_response_txt = f"return Response(serializer.errors, status={to_drf_status_code(fail_error_code)})"
-            # func_txt = delete_request_template.substitute(
-            #     response_success=success_response_txt, response_error=error_response_txt
-            # )
+            if method.contains_query_params:
+                serializer_txt = f"obj = {to_class_name(method.operation_id)}Serializer(data=request.query_params)"
+            else:
+                serializer_txt = f"#TODO replace me\n{INDENT}{INDENT}obj = Serializer()"
+            success_response_txt = f"return HttpResponse(status={to_drf_status_code(success_error_code)})"
+            error_response_txt = f"return HttpResponse(status={to_drf_status_code(fail_error_code)})"
+            func_txt = delete_request_template.substitute(
+                serializer=serializer_txt, response_success=success_response_txt, response_error=error_response_txt
+            )
 
     return func_txt
 
@@ -343,7 +376,7 @@ def create_view_func(path: ApiPath) -> str:
         function_txt = f"{INDENT}pass"
 
     query_params = "request"
-    if params := path.get_query_params():
+    if params := path.get_path_params():
         query_params += ", "
         query_params += ", ".join(params)
 
@@ -355,12 +388,20 @@ def {function_name}({query_params}):
     return view_func_txt
 
 
-def create_view_file(open_API: OpenAPIDefinition) -> None:  # noqa: C0103
+def create_view_file(
+    open_API: OpenAPIDefinition, *, export_folder: Optional[Path] = None, use_tempdir: bool = False
+) -> None:  # noqa: C0103
     views = []
     for path in open_API.paths:
         views.append(create_view_func(path))
 
-    view_file = Path(__file__).parent / "views.py"
+    if use_tempdir:
+        tmp_file = tempfile.NamedTemporaryFile("w", suffix="_views.py", delete_on_close=False)
+        tmp_file.close()
+        view_file = Path(tmp_file.name)
+    else:
+        view_file = export_folder / "serializers.py" if export_folder else Path(__file__).parent / "serializers.py"
+
     with view_file.open("w") as fp:
         fp.write("\n".join(INITIAL_VIEW_FILE_INPUTS))
         fp.write("\n\n\n")
@@ -368,3 +409,8 @@ def create_view_file(open_API: OpenAPIDefinition) -> None:  # noqa: C0103
 
     isort.api.sort_file(view_file)
     black.format_file_in_place(view_file, mode=black.Mode(), fast=False, write_back=black.WriteBack.YES)
+
+    if use_tempdir:
+        with view_file.open("r") as fp:
+            for line in fp.readlines():
+                print(line)

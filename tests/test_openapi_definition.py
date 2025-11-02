@@ -95,4 +95,5 @@ def test_create_view_funcs(openapi_yaml):
 
     from openapi_reader.drf import create_view_file
 
-    create_view_file(definition)
+    # create_view_file(definition)
+    create_view_file(definition, use_tempdir=True)

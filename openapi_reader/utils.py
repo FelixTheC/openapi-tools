@@ -76,3 +76,7 @@ def convert_camel_case_to_snake_case(txt: str) -> str:
 
         parts.append(char.lower())
     return "".join(parts)
+
+
+def to_class_name(txt: str) -> str:
+    return txt[0].upper() + txt[1:]

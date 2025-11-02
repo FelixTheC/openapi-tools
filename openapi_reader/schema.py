@@ -4,7 +4,7 @@ import typing
 from dataclasses import dataclass
 from typing import Literal, Optional
 
-from openapi_reader.utils import HTTPResponse, convert_camel_case_to_snake_case
+from openapi_reader.utils import HTTPResponse, convert_camel_case_to_snake_case, to_class_name
 
 
 class SchemaType(enum.Enum):
@@ -111,23 +111,27 @@ class Method:
                 return HTTPResponse(int(status_code))
         return HTTPResponse.BAD_REQUEST
 
+    @property
+    def contains_query_params(self) -> bool:
+        """
+        Query params means `?foo=bar&bar=foo` inside a url
+        :return: true if the method contains query params, false otherwise
+        """
+        return any(param.position == "query" for param in self.parameters)
+
 
 @dataclass(slots=True)
 class ApiPath:
     path: str
     methods: list[Method]
 
-    def get_query_params(self) -> list[str]:
-        res = []
+    def get_path_params(self) -> list[str]:
+        res = set()
         for method in self.methods:
-            res.extend(
-                [
-                    f"{convert_camel_case_to_snake_case(param.name)}: {param.schema.get_type_hint_str()}"
-                    for param in method.parameters
-                    if param.position == "query"
-                ]
-            )
-        return res
+            for param in method.parameters:
+                if param.position == "path":
+                    res.add(f"{convert_camel_case_to_snake_case(param.name)}: {param.schema.get_type_hint_str()}")
+        return list(res)
 
 
 class OpenAPIDefinition:
@@ -142,6 +146,10 @@ class OpenAPIDefinition:
         self.__openapi_data = yaml_data
         self.created_schemas = {}
         self.paths = []
+
+    def parse(self):
+        self._extract_schemas()
+        self._extract_paths()
 
     def _extract_schemas(self):
         required_schemas = self.__openapi_data["components"]["schemas"]
@@ -224,6 +232,9 @@ class OpenAPIDefinition:
                     if status_code == "default":
                         status_code = HTTPResponse.OK.value
                     response_schemas[status_code] = response_schema
+                parameters = create_parameters(data.get("parameters", []), self.created_schemas)
+                if query_schema := create_schema_from_query_params(data["operationId"], parameters):
+                    self.created_schemas[query_schema.name] = query_schema
                 method_data.append(
                     Method(
                         operation_id=data["operationId"],
@@ -231,7 +242,7 @@ class OpenAPIDefinition:
                         request_schema=request_schema,
                         response_schema=response_schemas,
                         tags=data.get("tags", []),
-                        parameters=create_parameters(data.get("parameters", []), self.created_schemas),
+                        parameters=parameters,
                     )
                 )
             self.paths.append(
@@ -347,3 +358,22 @@ def create_parameters(data: list, existing_schemas: dict = {}) -> list[QueryPara
         )
 
     return res
+
+
+def create_schema_from_query_params(operation_id: str, params: list[QueryParam]) -> Schema | None:
+    schema = Schema(name=f"{to_class_name(operation_id)}", properties=[], typ=SchemaType.OBJECT)
+    for param in params:
+        if param.position != "query":
+            continue
+        schema.properties.append(
+            Property(
+                name=param.name,
+                example=param.schema.properties[0].example,
+                type=param.schema.properties[0].type,
+                enum_values=param.schema.properties[0].enum_values,
+                ref=param.schema.properties[0].ref,
+            )
+        )
+    if schema.properties:
+        return schema
+    return None
