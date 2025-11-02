@@ -23,8 +23,9 @@ SERIALIZERS = {
 
 INITIAL_FILE_INPUTS = ["from rest_framework import serializers"]
 INITIAL_VIEW_FILE_INPUTS = [
+    "import typing",
     "from rest_framework.response import Response",
-    "from rest_framework import status",
+    "from rest_framework import status as drf_status",
     "from rest_framework.views import APIView",
     "from rest_framework.permissions import IsAuthenticated",
     "from rest_framework.decorators import api_view",
@@ -39,115 +40,115 @@ INDENT = "    "
 def to_drf_status_code(code: HTTPResponse) -> str:
     match code:
         case HTTPResponse.OK:
-            return "status.HTTP_200_OK"
+            return "drf_status.HTTP_200_OK"
         case HTTPResponse.CREATED:
-            return "status.HTTP_201_CREATED"
+            return "drf_status.HTTP_201_CREATED"
         case HTTPResponse.ACCEPTED:
-            return "status.HTTP_202_ACCEPTED"
+            return "drf_status.HTTP_202_ACCEPTED"
         case HTTPResponse.NO_CONTENT:
-            return "status.HTTP_204_NO_CONTENT"
+            return "drf_status.HTTP_204_NO_CONTENT"
         case HTTPResponse.RESET_CONTENT:
-            return "status.HTTP_205_RESET_CONTENT"
+            return "drf_status.HTTP_205_RESET_CONTENT"
         case HTTPResponse.PARTIAL_CONTENT:
-            return "status.HTTP_206_PARTIAL_CONTENT"
+            return "drf_status.HTTP_206_PARTIAL_CONTENT"
         case HTTPResponse.MULTI_STATUS:
-            return "status.HTTP_207_MULTI_STATUS"
+            return "drf_status.HTTP_207_MULTI_STATUS"
         case HTTPResponse.ALREADY_REPORTED:
-            return "status.HTTP_208_ALREADY_REPORTED"
+            return "drf_status.HTTP_208_ALREADY_REPORTED"
         case HTTPResponse.IM_USED:
-            return "status.HTTP_226_IM_USED"
+            return "drf_status.HTTP_226_IM_USED"
         case HTTPResponse.MULTIPLE_CHOICES:
-            return "status.HTTP_300_MULTIPLE_CHOICES"
+            return "drf_status.HTTP_300_MULTIPLE_CHOICES"
         case HTTPResponse.MOVED_PERMANENTLY:
-            return "status.HTTP_301_MOVED_PERMANENTLY"
+            return "drf_status.HTTP_301_MOVED_PERMANENTLY"
         case HTTPResponse.FOUND:
-            return "status.HTTP_302_FOUND"
+            return "drf_status.HTTP_302_FOUND"
         case HTTPResponse.SEE_OTHER:
-            return "status.HTTP_303_SEE_OTHER"
+            return "drf_status.HTTP_303_SEE_OTHER"
         case HTTPResponse.NOT_MODIFIED:
-            return "status.HTTP_304_NOT_MODIFIED"
+            return "drf_status.HTTP_304_NOT_MODIFIED"
         case HTTPResponse.USE_PROXY:
-            return "status.HTTP_305_USE_PROXY"
+            return "drf_status.HTTP_305_USE_PROXY"
         case HTTPResponse.TEMPORARY_REDIRECT:
-            return "status.HTTP_307_TEMPORARY_REDIRECT"
+            return "drf_status.HTTP_307_TEMPORARY_REDIRECT"
         case HTTPResponse.PERMANENT_REDIRECT:
-            return "status.HTTP_308_PERMANENT_REDIRECT"
+            return "drf_status.HTTP_308_PERMANENT_REDIRECT"
         case HTTPResponse.BAD_REQUEST:
-            return "status.HTTP_400_BAD_REQUEST"
+            return "drf_status.HTTP_400_BAD_REQUEST"
         case HTTPResponse.UNAUTHORIZED:
-            return "status.HTTP_401_UNAUTHORIZED"
+            return "drf_status.HTTP_401_UNAUTHORIZED"
         case HTTPResponse.FORBIDDEN:
-            return "status.HTTP_403_FORBIDDEN"
+            return "drf_status.HTTP_403_FORBIDDEN"
         case HTTPResponse.NOT_FOUND:
-            return "status.HTTP_404_NOT_FOUND"
+            return "drf_status.HTTP_404_NOT_FOUND"
         case HTTPResponse.METHOD_NOT_ALLOWED:
-            return "status.HTTP_405_METHOD_NOT_ALLOWED"
+            return "drf_status.HTTP_405_METHOD_NOT_ALLOWED"
         case HTTPResponse.NOT_ACCEPTABLE:
-            return "status.HTTP_406_NOT_ACCEPTABLE"
+            return "drf_status.HTTP_406_NOT_ACCEPTABLE"
         case HTTPResponse.PROXY_AUTHENTICATION_REQUIRED:
-            return "status.HTTP_407_PROXY_AUTHENTICATION_REQUIRED"
+            return "drf_status.HTTP_407_PROXY_AUTHENTICATION_REQUIRED"
         case HTTPResponse.REQUEST_TIMEOUT:
-            return "status.HTTP_408_REQUEST_TIMEOUT"
+            return "drf_status.HTTP_408_REQUEST_TIMEOUT"
         case HTTPResponse.CONFLICT:
-            return "status.HTTP_409_CONFLICT"
+            return "drf_status.HTTP_409_CONFLICT"
         case HTTPResponse.GONE:
-            return "status.HTTP_410_GONE"
+            return "drf_status.HTTP_410_GONE"
         case HTTPResponse.LENGTH_REQUIRED:
-            return "status.HTTP_411_LENGTH_REQUIRED"
+            return "drf_status.HTTP_411_LENGTH_REQUIRED"
         case HTTPResponse.PRECONDITION_FAILED:
-            return "status.HTTP_412_PRECONDITION_FAILED"
+            return "drf_status.HTTP_412_PRECONDITION_FAILED"
         case HTTPResponse.REQUEST_ENTITY_TOO_LARGE:
-            return "status.HTTP_413_REQUEST_ENTITY_TOO_LARGE"
+            return "drf_status.HTTP_413_REQUEST_ENTITY_TOO_LARGE"
         case HTTPResponse.REQUEST_URI_TOO_LONG:
-            return "status.HTTP_414_REQUEST_URI_TOO_LONG"
+            return "drf_status.HTTP_414_REQUEST_URI_TOO_LONG"
         case HTTPResponse.UNSUPPORTED_MEDIA_TYPE:
-            return "status.HTTP_415_UNSUPPORTED_MEDIA_TYPE"
+            return "drf_status.HTTP_415_UNSUPPORTED_MEDIA_TYPE"
         case HTTPResponse.REQUESTED_RANGE_NOT_SATISFIABLE:
-            return "status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE"
+            return "drf_status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE"
         case HTTPResponse.EXPECTATION_FAILED:
-            return "status.HTTP_417_EXPECTATION_FAILED"
+            return "drf_status.HTTP_417_EXPECTATION_FAILED"
         case HTTPResponse.IM_A_TEAPOT:
-            return "status.HTTP_418_IM_A_TEAPOT"
+            return "drf_status.HTTP_418_IM_A_TEAPOT"
         case HTTPResponse.MISDIRECTED_REQUEST:
-            return "status.HTTP_421_MISDIRECTED_REQUEST"
+            return "drf_status.HTTP_421_MISDIRECTED_REQUEST"
         case HTTPResponse.UNPROCESSABLE_ENTITY:
-            return "status.HTTP_422_UNPROCESSABLE_ENTITY"
+            return "drf_status.HTTP_422_UNPROCESSABLE_ENTITY"
         case HTTPResponse.LOCKED:
-            return "status.HTTP_423_LOCKED"
+            return "drf_status.HTTP_423_LOCKED"
         case HTTPResponse.FAILED_DEPENDENCY:
-            return "status.HTTP_424_FAILED_DEPENDENCY"
+            return "drf_status.HTTP_424_FAILED_DEPENDENCY"
         case HTTPResponse.UPGRADE_REQUIRED:
-            return "status.HTTP_426_UPGRADE_REQUIRED"
+            return "drf_status.HTTP_426_UPGRADE_REQUIRED"
         case HTTPResponse.PRECONDITION_REQUIRED:
-            return "status.HTTP_428_PRECONDITION_REQUIRED"
+            return "drf_status.HTTP_428_PRECONDITION_REQUIRED"
         case HTTPResponse.TOO_MANY_REQUESTS:
-            return "status.HTTP_429_TOO_MANY_REQUESTS"
+            return "drf_status.HTTP_429_TOO_MANY_REQUESTS"
         case HTTPResponse.REQUEST_HEADER_FIELDS_TOO_LARGE:
-            return "status.HTTP_431_REQUEST_HEADER_FIELDS_TOO_LARGE"
+            return "drf_status.HTTP_431_REQUEST_HEADER_FIELDS_TOO_LARGE"
         case HTTPResponse.UNAVAILABLE_FOR_LEGAL_REASONS:
-            return "status.HTTP_451_UNAVAILABLE_FOR_LEGAL_REASONS"
+            return "drf_status.HTTP_451_UNAVAILABLE_FOR_LEGAL_REASONS"
         case HTTPResponse.INTERNAL_SERVER_ERROR:
-            return "status.HTTP_500_INTERNAL_SERVER_ERROR"
+            return "drf_status.HTTP_500_INTERNAL_SERVER_ERROR"
         case HTTPResponse.NOT_IMPLEMENTED:
-            return "status.HTTP_501_NOT_IMPLEMENTED"
+            return "drf_status.HTTP_501_NOT_IMPLEMENTED"
         case HTTPResponse.BAD_GATEWAY:
-            return "status.HTTP_502_BAD_GATEWAY"
+            return "drf_status.HTTP_502_BAD_GATEWAY"
         case HTTPResponse.SERVICE_UNAVAILABLE:
-            return "status.HTTP_503_SERVICE_UNAVAILABLE"
+            return "drf_status.HTTP_503_SERVICE_UNAVAILABLE"
         case HTTPResponse.GATEWAY_TIMEOUT:
-            return "status.HTTP_504_GATEWAY_TIMEOUT"
+            return "drf_status.HTTP_504_GATEWAY_TIMEOUT"
         case HTTPResponse.HTTP_VERSION_NOT_SUPPORTED:
-            return "status.HTTP_505_HTTP_VERSION_NOT_SUPPORTED"
+            return "drf_status.HTTP_505_HTTP_VERSION_NOT_SUPPORTED"
         case HTTPResponse.VARIANT_ALSO_NEGOTIATES:
-            return "status.HTTP_506_VARIANT_ALSO_NEGOTIATES"
+            return "drf_status.HTTP_506_VARIANT_ALSO_NEGOTIATES"
         case HTTPResponse.INSUFFICIENT_STORAGE:
-            return "status.HTTP_507_INSUFFICIENT_STORAGE"
+            return "drf_status.HTTP_507_INSUFFICIENT_STORAGE"
         case HTTPResponse.LOOP_DETECTED:
-            return "status.HTTP_508_LOOP_DETECTED"
+            return "drf_status.HTTP_508_LOOP_DETECTED"
         case HTTPResponse.NOT_EXTENDED:
-            return "status.HTTP_510_NOT_EXTENDED"
+            return "drf_status.HTTP_510_NOT_EXTENDED"
         case HTTPResponse.NETWORK_AUTHENTICATION_REQUIRED:
-            return "status.HTTP_511_NETWORK_AUTHENTICATION_REQUIRED"
+            return "drf_status.HTTP_511_NETWORK_AUTHENTICATION_REQUIRED"
         case _:
             return ""
 

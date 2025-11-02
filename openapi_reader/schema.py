@@ -41,6 +41,8 @@ class Schema:
     def get_type_hint_str(self) -> str:
         match self.typ:
             case SchemaType.STRING:
+                if self.properties[0].enum_values:
+                    return f"typing.Literal[{', '.join(map(lambda x: f'"{x}"', self.properties[0].enum_values))}]"
                 return "str"
             case SchemaType.INTEGER:
                 return "int"
