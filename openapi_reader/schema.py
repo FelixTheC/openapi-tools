@@ -133,6 +133,25 @@ class ApiPath:
                     res.add(f"{convert_camel_case_to_snake_case(param.name)}: {param.schema.get_type_hint_str()}")
         return list(res)
 
+    def get_dispatcher_params(self) -> str:
+        res = set()
+        if not self.methods:
+            return ""
+        for method in self.methods:
+            for param in method.parameters:
+                if param.position == "path":
+                    res.add(f"<{param.schema.get_type_hint_str()}:{convert_camel_case_to_snake_case(param.name)}>")
+        return "/".join(res)
+
+    def get_dispatcher_name(self):
+        sections = self.path.split("/")
+        correct_sections = []
+        for section in sections:
+            if section.startswith("{"):
+                continue
+            correct_sections.append(section)
+        return "/".join(correct_sections)
+
 
 class OpenAPIDefinition:
     paths: list[ApiPath]

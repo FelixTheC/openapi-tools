@@ -7,7 +7,7 @@ import black
 import isort
 
 from openapi_reader.schema import OpenAPIDefinition, Schema, Property, Method, ResponseSchema, SchemaType, ApiPath
-from openapi_reader.utils import HTTPResponse, convert_camel_case_to_snake_case, to_class_name
+from openapi_reader.utils import HTTPResponse, convert_camel_case_to_snake_case, to_class_name, write_data_to_file
 
 SERIALIZERS = {
     "str": "serializers.CharField()",  # can be extended
@@ -219,28 +219,13 @@ class {schema_name}Serializer(serializers.Serializer):
         else:
             schemas.insert(0, schema_def)
 
-    if use_tempdir:
-        tmp_file = tempfile.NamedTemporaryFile("w+", suffix="_serializer.py", delete_on_close=False)
-        tmp_file.close()
-        export_file = Path(tmp_file.name)
-    else:
-        export_file = export_folder / "serializers.py" if export_folder else Path(__file__).parent / "serializers.py"
-
-    with export_file.open("w") as fp:
-        for head in INITIAL_FILE_INPUTS:
-            fp.write(head)
-            fp.write("\n")
-
-        for obj in schemas:
-            fp.write(obj)
-
-    isort.api.sort_file(export_file)
-    black.format_file_in_place(export_file, mode=black.Mode(), fast=False, write_back=black.WriteBack.YES)
-
-    if use_tempdir:
-        with export_file.open("r") as fp:
-            for line in fp.readlines():
-                print(line)
+    write_data_to_file(
+        schemas,
+        import_statements=INITIAL_FILE_INPUTS,
+        file_name="serializers",
+        export_folder=export_folder,
+        use_tempdir=use_tempdir,
+    )
 
 
 get_request_template = Template("""
@@ -395,22 +380,40 @@ def create_view_file(
     for path in open_API.paths:
         views.append(create_view_func(path))
 
-    if use_tempdir:
-        tmp_file = tempfile.NamedTemporaryFile("w", suffix="_views.py", delete_on_close=False)
-        tmp_file.close()
-        view_file = Path(tmp_file.name)
-    else:
-        view_file = export_folder / "serializers.py" if export_folder else Path(__file__).parent / "serializers.py"
+    write_data_to_file(
+        views,
+        import_statements=INITIAL_VIEW_FILE_INPUTS,
+        file_name="views",
+        export_folder=export_folder,
+        use_tempdir=use_tempdir,
+    )
 
-    with view_file.open("w") as fp:
-        fp.write("\n".join(INITIAL_VIEW_FILE_INPUTS))
-        fp.write("\n\n\n")
-        fp.write("\n\n\n".join(views))
 
-    isort.api.sort_file(view_file)
-    black.format_file_in_place(view_file, mode=black.Mode(), fast=False, write_back=black.WriteBack.YES)
+ROUTER_BASE_IMPORT = ["from django.urls import path"]
 
-    if use_tempdir:
-        with view_file.open("r") as fp:
-            for line in fp.readlines():
-                print(line)
+
+def create_route(path: ApiPath) -> tuple[str, str]:
+    function_name = convert_camel_case_to_snake_case(path.methods[0].operation_id)
+    params: str = path.get_dispatcher_params()
+    path_name: str = path.get_dispatcher_name()
+    if params:
+        return function_name, f"{path_name}/{params}/"
+    return function_name, f"{path_name}/"
+
+
+def create_urls_file(open_API: OpenAPIDefinition, *, export_folder: Optional[Path] = None, use_tempdir: bool = False):
+    import_statements = ROUTER_BASE_IMPORT
+    path_statements = ["urlpatterns = ["]
+    for path in open_API.paths:
+        view_name, _url = create_route(path)
+        import_statements.append(f"from .views import {view_name}")
+        path_statements.append(f"{INDENT}path('{_url}', {view_name}),")
+    path_statements.append("]")
+
+    write_data_to_file(
+        path_statements,
+        import_statements=import_statements,
+        file_name="urls",
+        export_folder=export_folder,
+        use_tempdir=use_tempdir,
+    )

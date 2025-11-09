@@ -38,23 +38,36 @@ Option A: Using uv (recommended)
 
 ## What the generated code looks like
 ### Serializer example (Pet)
-- class PetSerializer(serializers.Serializer)
-  - id = serializers.IntegerField()
-  - name = serializers.CharField()
-  - category = CategorySerializer()
-  - photourls = serializers.CharField()
-  - tags = TagSerializer(many=True)
-  - status = serializers.CharField()
+```python
+class PetSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    category = CategorySerializer()
+    photourls = serializers.CharField()
+    tags = TagSerializer(many=True)
+    status = serializers.CharField()
+```
 
 ### View example (find pets by status)
-- @api_view(["GET"])  
-  def find_pets_by_status(request):
-  - serializer = FindPetsByStatusSerializer(data=request.query_params)
-  - if not serializer.is_valid():
-    - return Response(serializer.errors, status=drf_status.HTTP_400_BAD_REQUEST)
-  - data = {}
-  - serializer = PetSerializer(data)
-  - return Response(serializer.data)
+```python
+@api_view(["GET"])  
+def find_pets_by_status(request):
+    serializer = FindPetsByStatusSerializer(data=request.query_params)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=drf_status.HTTP_400_BAD_REQUEST)
+    data = {}
+    serializer = PetSerializer(data)
+    return Response(serializer.data)
+```
+
+### Url dispatcher example (find pets by status)
+```python
+urlatterns = [
+    ...
+    path("/pet/<int:pet_id>/", get_pet_by_id),
+    ...
+]
+```
 
 ### More examples
 - See the examples/ folder for more examples.

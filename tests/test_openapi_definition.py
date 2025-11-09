@@ -97,3 +97,13 @@ def test_create_view_funcs(openapi_yaml):
 
     # create_view_file(definition)
     create_view_file(definition, use_tempdir=True)
+
+
+def test_create_dispatcher_file(openapi_yaml):
+    definition = OpenAPIDefinition(openapi_yaml)
+    definition._extract_schemas()
+    definition._extract_paths()
+
+    from openapi_reader.drf import create_urls_file
+
+    create_urls_file(definition)

@@ -1,5 +1,11 @@
 import enum
 import re
+import tempfile
+from pathlib import Path
+from typing import Optional
+
+import black
+import isort
 
 
 class HTTPResponse(enum.IntEnum):
@@ -80,3 +86,32 @@ def convert_camel_case_to_snake_case(txt: str) -> str:
 
 def to_class_name(txt: str) -> str:
     return txt[0].upper() + txt[1:]
+
+
+def write_data_to_file(
+    data,
+    *,
+    import_statements: list[str],
+    file_name: str,
+    export_folder: Optional[Path] = None,
+    use_tempdir: bool = False,
+):
+    if use_tempdir:
+        tmp_file = tempfile.NamedTemporaryFile("w", suffix=f"_{file_name}.py", delete_on_close=False)
+        tmp_file.close()
+        view_file = Path(tmp_file.name)
+    else:
+        view_file = export_folder / f"{file_name}.py" if export_folder else Path(__file__).parent / f"{file_name}.py"
+
+    with view_file.open("w") as fp:
+        fp.write("\n".join(import_statements))
+        fp.write("\n\n\n")
+        fp.write("\n\n\n".join(data))
+
+    isort.api.sort_file(view_file)
+    black.format_file_in_place(view_file, mode=black.Mode(), fast=False, write_back=black.WriteBack.YES)
+
+    if use_tempdir:
+        with view_file.open("r") as fp:
+            for line in fp.readlines():
+                print(line)
