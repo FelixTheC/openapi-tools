@@ -92,6 +92,7 @@ def test_create_view_funcs(openapi_yaml):
     definition = OpenAPIDefinition(openapi_yaml)
     definition._extract_schemas()
     definition._extract_paths()
+    definition._extract_security_schemes()
 
     from openapi_reader.drf import create_view_file
 

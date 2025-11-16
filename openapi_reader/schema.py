@@ -83,6 +83,44 @@ class QueryParam:
     schema: Schema
 
 
+class AuthType(enum.Enum):
+    API_KEY = "apiKey"
+    BASIC = "basic"
+    BEARER = "bearer"
+    OAUTH2 = "oauth2"
+    COOKIE = "cookie"
+
+
+@dataclass
+class AuthSchema:
+    type: str
+    scheme: str
+
+
+BEARER_AUTH = AuthSchema("http", "bearer")
+BEARER_AUTH.bearerFormat = "JWT"
+
+TOKEN_AUTH = AuthSchema("apiKey", "")
+TOKEN_AUTH.name = "Authorization"
+TOKEN_AUTH.position = "header"
+
+BASIC_AUTH = AuthSchema("http", "basic")
+SESSION_AUTH = AuthSchema("http", "cookie")
+
+API_KEY_AUTH = AuthSchema("apiKey", "")
+API_KEY_AUTH.position = "header"
+API_KEY_AUTH.name = "X-API-KEY"
+
+OAUTH2_AUTH = AuthSchema("oauth2", "")
+OAUTH2_AUTH.authorizationUrl = ""
+
+
+@dataclass(slots=True)
+class SecurityScheme:
+    type: AuthType
+    auth: AuthSchema
+
+
 @dataclass(slots=True)
 class Method:
     operation_id: str
@@ -157,13 +195,15 @@ class OpenAPIDefinition:
     paths: list[ApiPath]
     # to check if a schema already exists which we can reuse directly
     created_schemas: dict[str, Schema]
+    auth_schemes: dict[str, SecurityScheme]
     __openapi_data: dict
 
-    __slots__ = ("paths", "created_schemas", "__openapi_data")
+    __slots__ = ("paths", "created_schemas", "auth_schemes", "__openapi_data")
 
     def __init__(self, yaml_data: dict):
         self.__openapi_data = yaml_data
         self.created_schemas = {}
+        self.auth_schemes = {}
         self.paths = []
 
     def parse(self):
@@ -270,6 +310,29 @@ class OpenAPIDefinition:
                     methods=method_data,
                 )
             )
+
+    def _extract_security_schemes(self):
+        security_schemes = self.__openapi_data.get("components", {}).get("securitySchemes", {})
+        for name, scheme in security_schemes.items():
+            match scheme["type"]:
+                case "apiKey":
+                    self.auth_schemes[name] = SecurityScheme(type=AuthType.API_KEY, auth=API_KEY_AUTH)
+                    self.auth_schemes[name].auth.name = scheme.get("name", API_KEY_AUTH.name)
+                case "basic":
+                    self.auth_schemes[name] = SecurityScheme(type=AuthType.BASIC, auth=BASIC_AUTH)
+                case "bearer":
+                    self.auth_schemes[name] = SecurityScheme(type=AuthType.BEARER, auth=BEARER_AUTH)
+                case "oauth2":
+                    self.auth_schemes[name] = SecurityScheme(type=AuthType.OAUTH2, auth=OAUTH2_AUTH)
+                    implicit_definition = scheme.get("flows", {}).get("implicit", {})
+                    authorization_url = implicit_definition.get("authorizationUrl", "")
+                    if authorization_url:
+                        OAUTH2_AUTH.authorizationUrl = authorization_url
+                    scopes = implicit_definition.get("scopes", {})
+                    if scopes:
+                        OAUTH2_AUTH.scopes = set(scopes.keys())
+                case _:
+                    print(f"Unknown security scheme: {name}")
 
 
 def convert_type(typ: str, value_format: str | None = None):
