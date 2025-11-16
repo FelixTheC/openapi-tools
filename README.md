@@ -69,7 +69,7 @@ urlatterns = [
 ]
 ```
 
-### More examples
+### More examples 
 - See the examples/ folder for more examples.
 
 ## Next steps: use it in your project
