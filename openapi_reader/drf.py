@@ -6,7 +6,16 @@ import tempfile
 import black
 import isort
 
-from openapi_reader.schema import OpenAPIDefinition, Schema, Property, Method, ResponseSchema, SchemaType, ApiPath
+from openapi_reader.schema import (
+    OpenAPIDefinition,
+    Schema,
+    Property,
+    Method,
+    ResponseSchema,
+    SchemaType,
+    ApiPath,
+    AuthType,
+)
 from openapi_reader.utils import HTTPResponse, convert_camel_case_to_snake_case, to_class_name, write_data_to_file
 
 SERIALIZERS = {
@@ -351,24 +360,46 @@ def create_view_func(path: ApiPath) -> str:
     api_requests = [f'"{obj.request_type.upper()}"' for obj in path.methods]
     api_decorator_txt = f"@api_view([{', '.join(api_requests)}])"
     functions = []
+    authentication_schemes = set()
     for method in path.methods:
+        for security_schema in method.security_schemes:
+            match security_schema.type:
+                case AuthType.API_KEY | AuthType.BEARER:
+                    if "from rest_framework.authentication import TokenAuthentication" not in INITIAL_VIEW_FILE_INPUTS:
+                        INITIAL_VIEW_FILE_INPUTS.append("from rest_framework.authentication import TokenAuthentication")
+                    authentication_schemes.add("TokenAuthentication")
+                case AuthType.BASIC:
+                    if "from rest_framework.authentication import BasicAuthentication" not in INITIAL_VIEW_FILE_INPUTS:
+                        INITIAL_VIEW_FILE_INPUTS.append("from rest_framework.authentication import BasicAuthentication")
+                    authentication_schemes.add("BasicAuthentication")
+                case AuthType.OAUTH2:
+                    pass
+
         func_txt = create_request_and_response_objects(method)
         if len(functions) > 1:
             func_txt.replace("if", "else if", 1)
         functions.append(func_txt)
     function_txt = "\n".join(functions)
-    if not function_txt.strip():
-        function_txt = f"{INDENT}pass"
 
     query_params = "request"
     if params := path.get_path_params():
         query_params += ", "
         query_params += ", ".join(params)
 
+    if authentication_schemes:
+        INITIAL_VIEW_FILE_INPUTS.append("from rest_framework.permissions import IsAuthenticated")
+        INITIAL_VIEW_FILE_INPUTS.append(
+            "from rest_framework.decorators import authentication_classes, permission_classes"
+        )
+        api_decorator_txt = f"{api_decorator_txt}\n@authentication_classes([{', '.join(authentication_schemes)}])"
+        api_decorator_txt = f"{api_decorator_txt}\n@permission_classes([IsAuthenticated])"
+
     view_func_txt = f"""
 {api_decorator_txt}
 def {function_name}({query_params}):
 {function_txt}
+
+    return HttpResponse(status=drf_status.HTTP_400_BAD_REQUEST)
 """
     return view_func_txt
 

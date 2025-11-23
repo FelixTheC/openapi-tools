@@ -129,6 +129,7 @@ class Method:
     response_schema: dict[str, ResponseSchema]
     tags: list[str]
     parameters: list[QueryParam]
+    security_schemes: list[SecurityScheme]
     request_schema_required: bool = False
 
     def get_success_response_schema(self) -> Optional[ResponseSchema]:
@@ -302,6 +303,7 @@ class OpenAPIDefinition:
                         response_schema=response_schemas,
                         tags=data.get("tags", []),
                         parameters=parameters,
+                        security_schemes=self._get_security_schemas(data.get("security", [])),
                     )
                 )
             self.paths.append(
@@ -333,6 +335,16 @@ class OpenAPIDefinition:
                         OAUTH2_AUTH.scopes = set(scopes.keys())
                 case _:
                     print(f"Unknown security scheme: {name}")
+
+    def _get_security_schemas(self, data: list) -> list[SecurityScheme]:
+        res = []
+        for scheme_definition in data:
+            for scheme_name in scheme_definition.keys():
+                try:
+                    res.append(self.auth_schemes[scheme_name])
+                except KeyError:
+                    print(f"Unknown security scheme: {scheme_name}")
+        return res
 
 
 def convert_type(typ: str, value_format: str | None = None):
