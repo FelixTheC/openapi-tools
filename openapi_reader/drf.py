@@ -5,6 +5,7 @@ import tempfile
 
 import black
 import isort
+from _pytest import scope
 
 from openapi_reader.schema import (
     OpenAPIDefinition,
@@ -239,6 +240,7 @@ class {schema_name}Serializer(serializers.Serializer):
 
 get_request_template = Template("""
     if request.method == "GET":
+        $security
         $data
         $serializer
         return Response(serializer.data)
@@ -249,6 +251,7 @@ serializer = SnippetSerializer(data=request.data)
 """
 post_request_template = Template("""
     if request.method == "POST":
+        $security
         $serializer
         if serializer.is_valid():
             serializer.save()
@@ -258,6 +261,7 @@ post_request_template = Template("""
 
 put_request_template = Template("""
     if request.method == "PUT":
+        $security
         $serializer
         if serializer.is_valid():
             serializer.save()
@@ -267,6 +271,7 @@ put_request_template = Template("""
 
 patch_request_template = Template("""
     if request.method == "PATCH":
+        $security
         $serializer
         if serializer.is_valid():
             serializer.save()
@@ -276,6 +281,7 @@ patch_request_template = Template("""
 
 delete_request_template = Template("""
     if request.method == "DELETE":
+        $security
         $serializer
         try:
             obj.delete()
@@ -286,8 +292,13 @@ delete_request_template = Template("""
 """)
 
 
-def create_request_and_response_objects(method: Method) -> str:
+def create_request_and_response_objects(method: Method, security_scopes: list[str]) -> str:
     func_txt = ""
+    security = ""
+    if security_scopes:
+        scopes = [f'"{scope_}"' for scope_ in security_scopes]
+        security = f'if hasattr(request.auth, "is_valid") and not request.auth.is_valid({",".join(scopes)}):'
+        security += f"{INDENT * 2}return Response(status=drf_status.HTTP_401_UNAUTHORIZED)"
     response_schema: Optional[ResponseSchema] = method.get_success_response_schema()
     success_error_code = method.get_success_error_code()
     fail_error_code = method.get_fail_error_code()
@@ -309,7 +320,7 @@ def create_request_and_response_objects(method: Method) -> str:
         {example_data}
 """
 
-                func_txt = get_request_template.substitute(data=example_data, serializer=schema_txt)
+                func_txt = get_request_template.substitute(security=security, data=example_data, serializer=schema_txt)
         case "post":
             request_schema = method.request_schema
             if request_schema.name:
@@ -323,7 +334,10 @@ def create_request_and_response_objects(method: Method) -> str:
             success_response_txt = f"return Response(serializer.data, status={to_drf_status_code(success_error_code)})"
             error_response_txt = f"return Response(serializer.errors, status={to_drf_status_code(fail_error_code)})"
             func_txt = post_request_template.substitute(
-                serializer=request_schema_txt, response_success=success_response_txt, response_error=error_response_txt
+                security=security,
+                serializer=request_schema_txt,
+                response_success=success_response_txt,
+                response_error=error_response_txt,
             )
         case "put":
             request_schema = method.request_schema
@@ -331,7 +345,10 @@ def create_request_and_response_objects(method: Method) -> str:
             success_response_txt = f"return Response(serializer.data, status={to_drf_status_code(success_error_code)})"
             error_response_txt = f"return Response(serializer.errors, status={to_drf_status_code(fail_error_code)})"
             func_txt = put_request_template.substitute(
-                serializer=request_schema_txt, response_success=success_response_txt, response_error=error_response_txt
+                security=security,
+                serializer=request_schema_txt,
+                response_success=success_response_txt,
+                response_error=error_response_txt,
             )
         case "patch":
             request_schema = method.request_schema
@@ -339,7 +356,10 @@ def create_request_and_response_objects(method: Method) -> str:
             success_response_txt = f"return Response(serializer.data, status={to_drf_status_code(success_error_code)})"
             error_response_txt = f"return Response(serializer.errors, status={to_drf_status_code(fail_error_code)})"
             func_txt = patch_request_template.substitute(
-                serializer=request_schema_txt, response_success=success_response_txt, response_error=error_response_txt
+                security=security,
+                serializer=request_schema_txt,
+                response_success=success_response_txt,
+                response_error=error_response_txt,
             )
         case "delete":
             if method.contains_query_params:
@@ -349,7 +369,10 @@ def create_request_and_response_objects(method: Method) -> str:
             success_response_txt = f"return HttpResponse(status={to_drf_status_code(success_error_code)})"
             error_response_txt = f"return HttpResponse(status={to_drf_status_code(fail_error_code)})"
             func_txt = delete_request_template.substitute(
-                serializer=serializer_txt, response_success=success_response_txt, response_error=error_response_txt
+                security=security,
+                serializer=serializer_txt,
+                response_success=success_response_txt,
+                response_error=error_response_txt,
             )
 
     return func_txt
@@ -361,8 +384,12 @@ def create_view_func(path: ApiPath) -> str:
     api_decorator_txt = f"@api_view([{', '.join(api_requests)}])"
     functions = []
     authentication_schemes = set()
+    permission_classes = set()
     for method in path.methods:
+        security_checks = []
+
         for security_schema in method.security_schemes:
+            permission_classes.add("IsAuthenticated")
             match security_schema.type:
                 case AuthType.API_KEY | AuthType.BEARER:
                     if "from rest_framework.authentication import TokenAuthentication" not in INITIAL_VIEW_FILE_INPUTS:
@@ -373,9 +400,28 @@ def create_view_func(path: ApiPath) -> str:
                         INITIAL_VIEW_FILE_INPUTS.append("from rest_framework.authentication import BasicAuthentication")
                     authentication_schemes.add("BasicAuthentication")
                 case AuthType.OAUTH2:
-                    pass
+                    if (
+                        "from oauth2_provider.contrib.rest_framework import OAuth2Authentication"
+                        not in INITIAL_VIEW_FILE_INPUTS
+                    ):
+                        INITIAL_VIEW_FILE_INPUTS.append(
+                            "from oauth2_provider.contrib.rest_framework import OAuth2Authentication"
+                        )
+                    # Optional: Add scope handling imports if your OpenAPI spec defines scopes
+                    if (
+                        "from oauth2_provider.contrib.rest_framework import TokenHasReadWriteScope"
+                        not in INITIAL_VIEW_FILE_INPUTS
+                    ):
+                        INITIAL_VIEW_FILE_INPUTS.append(
+                            "from oauth2_provider.contrib.rest_framework import TokenHasReadWriteScope"
+                        )
 
-        func_txt = create_request_and_response_objects(method)
+                    authentication_schemes.add("OAuth2Authentication")
+                    permission_classes.add("TokenHasReadWriteScope")
+                    if hasattr(security_schema.auth, "scopes"):
+                        security_checks = list(security_schema.auth.scopes)
+
+        func_txt = create_request_and_response_objects(method, security_checks)
         if len(functions) > 1:
             func_txt.replace("if", "else if", 1)
         functions.append(func_txt)
@@ -392,7 +438,7 @@ def create_view_func(path: ApiPath) -> str:
             "from rest_framework.decorators import authentication_classes, permission_classes"
         )
         api_decorator_txt = f"{api_decorator_txt}\n@authentication_classes([{', '.join(authentication_schemes)}])"
-        api_decorator_txt = f"{api_decorator_txt}\n@permission_classes([IsAuthenticated])"
+        api_decorator_txt = f"{api_decorator_txt}\n@permission_classes([{', '.join(permission_classes)}])"
 
     view_func_txt = f"""
 {api_decorator_txt}

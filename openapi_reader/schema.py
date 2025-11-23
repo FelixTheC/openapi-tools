@@ -113,6 +113,7 @@ API_KEY_AUTH.name = "X-API-KEY"
 
 OAUTH2_AUTH = AuthSchema("oauth2", "")
 OAUTH2_AUTH.authorizationUrl = ""
+OAUTH2_AUTH.scopes = set()
 
 
 @dataclass(slots=True)
