@@ -30,6 +30,7 @@ class Schema:
     name: str
     properties: list[Property]
     typ: SchemaType
+    required_fields: set[str]
 
     def get_refs(self) -> list[str]:
         refs = []
@@ -216,7 +217,10 @@ class OpenAPIDefinition:
         required_schemas = self.__openapi_data["components"]["schemas"]
         for key, value in required_schemas.items():
             self.created_schemas[key] = Schema(
-                name=key, properties=create_properties(value, required_schemas), typ=SchemaType(value["type"])
+                name=key,
+                properties=create_properties(value, required_schemas),
+                typ=SchemaType(value["type"]),
+                required_fields=set(value.get("required", [])),
             )
 
     def _extract_paths(self):
@@ -248,6 +252,7 @@ class OpenAPIDefinition:
                         ],
                         # TODO fix me
                         typ=SchemaType(request_schema_def.get("type", "object")),
+                        required_fields=request_schema_def.get("required", []),
                     )
                 else:
                     request_schema = self.created_schemas[request_schema_name]
@@ -280,7 +285,12 @@ class OpenAPIDefinition:
                                 response_schema = ResponseSchema(
                                     required=True,
                                     type=SchemaType(resp_schema_typ),
-                                    schema=Schema(name=request_schema_name, properties=props, typ=SchemaType("object")),
+                                    schema=Schema(
+                                        name=request_schema_name,
+                                        properties=props,
+                                        typ=SchemaType("object"),
+                                        required_fields=resp_content.get("required", []),
+                                    ),
                                 )
                             else:
                                 response_schema = ResponseSchema(
@@ -386,6 +396,7 @@ def create_item_schema(item: dict, existing_schemas: dict = {}) -> None | Schema
                 name=schema_name,
                 properties=create_properties(existing_schema, existing_schemas),
                 typ=existing_schema["type"],
+                required_fields=set(existing_schema.get("required_fields", [])),
             )
         except KeyError:
             # should never happen
@@ -448,7 +459,12 @@ def create_parameters(data: list, existing_schemas: dict = {}) -> list[QueryPara
                 position=obj.get("in", "query"),
                 name=obj.get("name", ""),
                 required=obj.get("required", False),
-                schema=Schema(name="", properties=properties, typ=SchemaType(obj["schema"].get("type", "object"))),
+                schema=Schema(
+                    name="",
+                    properties=properties,
+                    typ=SchemaType(obj["schema"].get("type", "object")),
+                    required_fields=set(),
+                ),
             ),
         )
 
@@ -456,7 +472,7 @@ def create_parameters(data: list, existing_schemas: dict = {}) -> list[QueryPara
 
 
 def create_schema_from_query_params(operation_id: str, params: list[QueryParam]) -> Schema | None:
-    schema = Schema(name=f"{to_class_name(operation_id)}", properties=[], typ=SchemaType.OBJECT)
+    schema = Schema(name=f"{to_class_name(operation_id)}", properties=[], typ=SchemaType.OBJECT, required_fields=set())
     for param in params:
         if param.position != "query":
             continue

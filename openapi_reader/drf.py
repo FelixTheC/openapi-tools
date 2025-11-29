@@ -1,11 +1,6 @@
 from pathlib import Path
 from string import Template
 from typing import Optional
-import tempfile
-
-import black
-import isort
-from _pytest import scope
 
 from openapi_reader.schema import (
     OpenAPIDefinition,
@@ -17,7 +12,13 @@ from openapi_reader.schema import (
     ApiPath,
     AuthType,
 )
-from openapi_reader.utils import HTTPResponse, convert_camel_case_to_snake_case, to_class_name, write_data_to_file
+from openapi_reader.utils import (
+    HTTPResponse,
+    convert_camel_case_to_snake_case,
+    to_class_name,
+    write_data_to_file,
+    INDENT,
+)
 
 SERIALIZERS = {
     "str": "serializers.CharField()",  # can be extended
@@ -42,8 +43,6 @@ INITIAL_VIEW_FILE_INPUTS = [
     "from rest_framework.serializers import Serializer",
     "from serializers import *",
 ]
-
-INDENT = "    "
 
 
 def to_drf_status_code(code: HTTPResponse) -> str:

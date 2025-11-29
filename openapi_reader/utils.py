@@ -7,6 +7,8 @@ from typing import Optional
 import black
 import isort
 
+INDENT = "    "
+
 
 class HTTPResponse(enum.IntEnum):
     OK = 200
@@ -115,3 +117,54 @@ def write_data_to_file(
         with view_file.open("r") as fp:
             for line in fp.readlines():
                 print(line)
+
+
+def operation_id_to_function_name(operation_id: str) -> str:
+    try:
+        camel_idx = re.search(r"[A-Z]", operation_id).start()
+    except AttributeError:
+        return operation_id
+    chars = [obj for obj in operation_id]
+    chars[camel_idx] = f"_{operation_id[camel_idx].lower()}"
+    return operation_id_to_function_name("".join(chars))
+
+
+def function_like_name_to_class_name(val: str, /):
+    def to_title(val_: str):
+        if val_[0].isupper():
+            return val_
+        else:
+            return val_.title()
+
+    return "".join([to_title(obj) for obj in val.split("_")])
+
+
+TYPE_CONVERTION = {
+    "integer": "int",
+    "number": "float",
+    "string": "str",
+    "object": "dict",
+    "array": "list",
+    "boolean": "bool",
+}
+
+STR_FORMAT = {
+    "date": "date",
+    "date-time": "datetime",
+    "byte": "bytes",
+}
+
+
+class Concurrency(enum.IntEnum):
+    SYNC = 0
+    ASYNC = 1
+
+    @classmethod
+    def from_str(cls, val: str):
+        match val.lower():
+            case "sync":
+                return cls.SYNC
+            case "async":
+                return cls.ASYNC
+            case _:
+                raise ValueError("Invalid concurrency value")
