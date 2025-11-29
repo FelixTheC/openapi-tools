@@ -38,6 +38,7 @@ def test_create_parameters():
 
 def test_openapi_definition_creates_paths(openapi_yaml):
     definition = OpenAPIDefinition(openapi_yaml)
+    definition._extract_security_schemes()
     definition._extract_schemas()
     definition._extract_paths()
     from pprint import pprint
@@ -80,6 +81,7 @@ def test_create_properties():
 
 def test_create_drf_serializers(openapi_yaml):
     definition = OpenAPIDefinition(openapi_yaml)
+    definition._extract_security_schemes()
     definition._extract_schemas()
     definition._extract_paths()
 
@@ -90,14 +92,14 @@ def test_create_drf_serializers(openapi_yaml):
 
 def test_create_view_funcs(openapi_yaml):
     definition = OpenAPIDefinition(openapi_yaml)
+    definition._extract_security_schemes()
     definition._extract_schemas()
     definition._extract_paths()
-    definition._extract_security_schemes()
 
     from openapi_reader.drf import create_view_file
 
-    # create_view_file(definition)
-    create_view_file(definition, use_tempdir=True)
+    create_view_file(definition)
+    # create_view_file(definition, use_tempdir=True)
 
 
 def test_create_dispatcher_file(openapi_yaml):

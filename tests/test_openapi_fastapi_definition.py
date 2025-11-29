@@ -1,0 +1,12 @@
+from openapi_reader.schema import OpenAPIDefinition
+
+
+def test_openapi_fastapi_definition(openapi_yaml):
+    definition = OpenAPIDefinition(openapi_yaml)
+    definition._extract_security_schemes()
+    definition._extract_schemas()
+    definition._extract_paths()
+
+    from openapi_reader.fastapi import create_serializer_file
+
+    create_serializer_file(definition)
