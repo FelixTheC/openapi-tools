@@ -16,13 +16,31 @@ class SchemaType(enum.Enum):
     OBJECT = "object"
 
 
+ADDITIONAL_PROPERTIES = {
+    "string": ("minLength", "maxLength", "pattern", "default", "format"),
+    "integer": ("minimum", "maximum", "default", "format"),
+    "number": ("minimum", "maximum", "default", "format", "multipleOf"),
+    "array": ("minItems", "maxItems", "default", "uniqueItems"),
+    "object": ("minProperties", "maxProperties", "required", "default"),
+}
+
+
 @dataclass(slots=True)
 class Property:
     name: str
     example: None | str | int | float | bool | list
-    type: object
+    type: object | list[object]
     enum_values: list  # can be empty
-    ref: Optional["Schema"] | Optional["Property"] = None
+    ref: Optional["Schema"] | Optional["Property"]
+    additional_requirements: dict
+
+    def __init__(self, name, example, type_, enum_values, ref=None, additional_requirements=None):
+        self.name = name
+        self.example = example
+        self.type = type_
+        self.enum_values = enum_values
+        self.ref = ref
+        self.additional_requirements = additional_requirements or {}
 
 
 @dataclass(slots=True)
@@ -31,6 +49,24 @@ class Schema:
     properties: list[Property]
     typ: SchemaType
     required_fields: set[str]
+    nullable_fields: set[str]
+    read_only_fields: set[str]
+
+    def __init__(
+        self,
+        name,
+        properties,
+        typ,
+        required_fields,
+        nullable_fields: Optional[set] = None,
+        read_only_fields: Optional[set] = None,
+    ):
+        self.name = name
+        self.properties = properties
+        self.typ = typ
+        self.required_fields = required_fields
+        self.nullable_fields = nullable_fields or set()
+        self.read_only_fields = read_only_fields or set()
 
     def get_refs(self) -> list[str]:
         refs = []
@@ -81,6 +117,14 @@ class QueryParam:
     position: str
     name: str
     required: bool
+    schema: Schema
+
+
+@dataclass(slots=True)
+class Parameter:
+    name: str
+    position: str
+    description: str
     schema: Schema
 
 
@@ -199,23 +243,31 @@ class OpenAPIDefinition:
     # to check if a schema already exists which we can reuse directly
     created_schemas: dict[str, Schema]
     auth_schemes: dict[str, SecurityScheme]
+    parameter_schemas: dict[str, Parameter]
+    response_schemas: dict[str, Schema]
     __openapi_data: dict
 
-    __slots__ = ("paths", "created_schemas", "auth_schemes", "__openapi_data")
+    __slots__ = ("paths", "created_schemas", "auth_schemes", "__openapi_data", "parameter_schemas", "response_schemas")
 
     def __init__(self, yaml_data: dict):
         self.__openapi_data = yaml_data
         self.created_schemas = {}
         self.auth_schemes = {}
         self.paths = []
+        self.parameter_schemas = {}
+        self.response_schemas = {}
 
     def parse(self):
+        self._extract_security_schemes()
         self._extract_schemas()
         self._extract_paths()
+        self._extract_parameter_schemas()
 
     def _extract_schemas(self):
         required_schemas = self.__openapi_data["components"]["schemas"]
         for key, value in required_schemas.items():
+            if "type" not in value:
+                continue
             self.created_schemas[key] = Schema(
                 name=key,
                 properties=create_properties(value, required_schemas),
@@ -246,7 +298,7 @@ class OpenAPIDefinition:
                             Property(
                                 name="",
                                 example=request_schema_def.get("default", ""),
-                                type=request_schema_def.get("type", ""),
+                                type_=request_schema_def.get("type", ""),
                                 enum_values=request_schema_def.get("enum", []),
                             )
                         ],
@@ -277,11 +329,17 @@ class OpenAPIDefinition:
                                 for key, val in resp_content.items():
                                     if key == "type":
                                         continue
-                                    props.append(
-                                        Property(
-                                            name="", example=val.get("default"), type=val.get("type"), enum_values=[]
+                                    if isinstance(val, dict):
+                                        props.append(
+                                            Property(
+                                                name="",
+                                                example=val.get("default"),
+                                                type_=val.get("type"),
+                                                enum_values=[],
+                                            )
                                         )
-                                    )
+                                    else:
+                                        props.append(Property(name="", example=f'"{val}"', type_=list, enum_values=[]))
                                 response_schema = ResponseSchema(
                                     required=True,
                                     type=SchemaType(resp_schema_typ),
@@ -357,6 +415,34 @@ class OpenAPIDefinition:
                     print(f"Unknown security scheme: {scheme_name}")
         return res
 
+    def _extract_parameter_schemas(self):
+        parameters_schemes: dict = self.__openapi_data.get("components", {}).get("parameters", {})
+        for value in parameters_schemes.values():
+            field_name = value.get("name")
+            is_required = value.get("schema", {}).get("required", False)
+            required_fields = set()
+            if is_required:
+                required_fields.add(field_name)
+            self.parameter_schemas[field_name] = Parameter(
+                name=field_name,
+                position=value.get("in", ""),
+                description=value.get("description", ""),
+                schema=Schema(
+                    name=field_name,
+                    properties=[
+                        create_property(field_name, value["schema"], self.__openapi_data["components"]["schemas"])
+                    ],
+                    typ=SchemaType(value["schema"]["type"]),
+                    required_fields=required_fields,
+                ),
+            )
+
+    def _extract_reference(self, reference: str) -> Schema:
+        *first, component_kind, name = reference.split("/")
+        data = self.__openapi_data["components"][component_kind][name]
+        res = create_item_schema(data, self.__openapi_data["components"]["schemas"])
+        self.created_schemas[name] = res
+
 
 def convert_type(typ: str, value_format: str | None = None):
     match typ:
@@ -408,17 +494,42 @@ def create_item_schema(item: dict, existing_schemas: dict = {}) -> None | Schema
             pass
     else:
         if isinstance(val, dict):
-            return Property(name="", example="", type=convert_type(val.get("type")), enum_values=[])
-        return Property(name="", example="", type=convert_type(val), enum_values=[])
+            return Property(name="", example="", type_=convert_type(val.get("type")), enum_values=[])
+        return Property(name="", example="", type_=convert_type(val), enum_values=[])
+
+
+def create_property(name: str, data: dict, existing_schemas: dict = {}) -> Property:
+    data_type: Optional[str] = data.get("type", None)
+
+    prop = Property(
+        name=name,
+        example=data.get("example"),
+        type_=convert_type(data_type or "", data.get("format")),
+        enum_values=data.get("enum", []),
+    )
+    if prop.enum_values:
+        prop.type = enum.Enum
+    if prop.type == list:
+        items = data.get("items")
+        prop.ref = create_item_schema(items, existing_schemas)
+    if "$ref" in data:
+        prop.ref = create_item_schema(data, existing_schemas)
+
+    if data_type:
+        for attribute in ADDITIONAL_PROPERTIES.get(data_type, []):
+            if attribute in data:
+                prop.additional_requirements[attribute] = data[attribute]
+
+    return prop
 
 
 def create_properties(data: dict, existing_schemas: dict = {}) -> list[Property]:
     properties = []
-    for key, value in data["properties"].items():
+    for key, value in data.get("properties", {}).items():
         prop = Property(
             name=key,
             example=value.get("example"),
-            type=convert_type(value.get("type", ""), value.get("format")),
+            type_=convert_type(value.get("type", ""), value.get("format")),
             enum_values=value.get("enum", []),
         )
         if prop.enum_values:
@@ -438,11 +549,10 @@ def create_parameters(data: list, existing_schemas: dict = {}) -> list[QueryPara
 
     for obj in data:
         properties = []
-
         prop = Property(
             name="",
             example=obj["schema"].get("example"),
-            type=convert_type(obj["schema"].get("type", ""), obj["schema"].get("format")),
+            type_=convert_type(obj["schema"].get("type", ""), obj["schema"].get("format")),
             enum_values=obj["schema"].get("enum", []),
         )
         if prop.enum_values:
@@ -480,7 +590,7 @@ def create_schema_from_query_params(operation_id: str, params: list[QueryParam])
             Property(
                 name=param.name,
                 example=param.schema.properties[0].example,
-                type=param.schema.properties[0].type,
+                type_=param.schema.properties[0].type,
                 enum_values=param.schema.properties[0].enum_values,
                 ref=param.schema.properties[0].ref,
             )

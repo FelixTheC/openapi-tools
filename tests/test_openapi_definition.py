@@ -2,6 +2,8 @@ from pathlib import Path
 import datetime as dt
 import enum
 
+import pytest
+
 from openapi_reader.reader import read_openapi_schema
 from openapi_reader.schema import OpenAPIDefinition, Property, create_properties, create_parameters
 
@@ -11,8 +13,8 @@ def test_openapi_definition():
     assert definition
 
 
-def test_openapi_definition_create_schemas(openapi_yaml):
-    definition = OpenAPIDefinition(openapi_yaml)
+def test_openapi_definition_create_schemas(openapi_example_yaml):
+    definition = OpenAPIDefinition(openapi_example_yaml)
     definition._extract_schemas()
     assert len(definition.created_schemas) == 8
     required_schemas = ["Address", "ApiResponse", "Category", "Customer", "Order", "Pet", "Tag", "User"]
@@ -36,11 +38,9 @@ def test_create_parameters():
     assert res[0].schema.properties[0].enum_values == ["available", "pending", "sold"]
 
 
-def test_openapi_definition_creates_paths(openapi_yaml):
-    definition = OpenAPIDefinition(openapi_yaml)
-    definition._extract_security_schemes()
-    definition._extract_schemas()
-    definition._extract_paths()
+def test_openapi_definition_creates_paths(openapi_example_yaml):
+    definition = OpenAPIDefinition(openapi_example_yaml)
+    definition.parse()
     from pprint import pprint
 
     pprint(definition.paths)
@@ -68,45 +68,30 @@ def test_create_properties():
         "xml": {"name": "order"},
     }
     results = [
-        Property(name="id", example=10, type=int, enum_values=[]),
-        Property(name="petId", example=198772, type=int, enum_values=[]),
-        Property(name="quantity", example=7, type=int, enum_values=[]),
-        Property(name="shipDate", example=None, type=dt.datetime, enum_values=[]),
-        Property(name="status", example="approved", type=enum.Enum, enum_values=["placed", "approved", "delivered"]),
-        Property(name="complete", example=None, type=bool, enum_values=[]),
+        Property(name="id", example=10, type_=int, enum_values=[]),
+        Property(name="petId", example=198772, type_=int, enum_values=[]),
+        Property(name="quantity", example=7, type_=int, enum_values=[]),
+        Property(name="shipDate", example=None, type_=dt.datetime, enum_values=[]),
+        Property(name="status", example="approved", type_=enum.Enum, enum_values=["placed", "approved", "delivered"]),
+        Property(name="complete", example=None, type_=bool, enum_values=[]),
     ]
     props = create_properties(data)
     assert all(prop in results for prop in props)
 
 
-def test_create_drf_serializers(openapi_yaml):
-    definition = OpenAPIDefinition(openapi_yaml)
-    definition._extract_security_schemes()
-    definition._extract_schemas()
-    definition._extract_paths()
-
-    from openapi_reader.drf import create_serializer_file
-
-    create_serializer_file(definition)
-
-
-def test_create_view_funcs(openapi_yaml):
-    definition = OpenAPIDefinition(openapi_yaml)
-    definition._extract_security_schemes()
-    definition._extract_schemas()
-    definition._extract_paths()
-
-    from openapi_reader.drf import create_view_file
-
-    create_view_file(definition)
-    # create_view_file(definition, use_tempdir=True)
+def test_extract_components_parameters(openapi_example_yaml):
+    definition = OpenAPIDefinition(openapi_example_yaml)
+    definition._extract_parameter_schemas()
+    assert len(definition.parameter_schemas) == 2
+    assert definition.parameter_schemas["limit"]
+    assert definition.parameter_schemas["limit"].schema.properties[0].additional_requirements["minimum"] == 1
+    assert definition.parameter_schemas["limit"].schema.properties[0].additional_requirements["maximum"] == 100
+    assert definition.parameter_schemas["offset"]
+    assert definition.parameter_schemas["offset"].schema.properties[0].additional_requirements["minimum"] == 0
+    with pytest.raises(KeyError):
+        assert definition.parameter_schemas["offset"].schema.properties[0].additional_requirements["maximum"] == 100
 
 
-def test_create_dispatcher_file(openapi_yaml):
-    definition = OpenAPIDefinition(openapi_yaml)
-    definition._extract_schemas()
-    definition._extract_paths()
-
-    from openapi_reader.drf import create_urls_file
-
-    create_urls_file(definition)
+def test_extract_reference_schema(openapi_example_yaml):
+    definition = OpenAPIDefinition(openapi_example_yaml)
+    assert definition._extract_reference("#/components/schemas/Error")
