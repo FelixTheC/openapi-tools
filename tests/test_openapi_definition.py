@@ -5,7 +5,7 @@ import enum
 import pytest
 
 from openapi_reader.reader import read_openapi_schema
-from openapi_reader.schema import OpenAPIDefinition, Property, create_properties, create_parameters
+from openapi_reader.schema import OpenAPIDefinition, Property, create_properties, create_parameters, SchemaType
 
 
 def test_openapi_definition():
@@ -13,8 +13,8 @@ def test_openapi_definition():
     assert definition
 
 
-def test_openapi_definition_create_schemas(openapi_example_yaml):
-    definition = OpenAPIDefinition(openapi_example_yaml)
+def test_openapi_definition_create_schemas(openapi_yaml):
+    definition = OpenAPIDefinition(openapi_yaml)
     definition._extract_schemas()
     assert len(definition.created_schemas) == 8
     required_schemas = ["Address", "ApiResponse", "Category", "Customer", "Order", "Pet", "Tag", "User"]
@@ -38,15 +38,13 @@ def test_create_parameters():
     assert res[0].schema.properties[0].enum_values == ["available", "pending", "sold"]
 
 
-def test_openapi_definition_creates_paths(openapi_example_yaml):
-    definition = OpenAPIDefinition(openapi_example_yaml)
+def test_openapi_definition_creates_paths(openapi_yaml):
+    definition = OpenAPIDefinition(openapi_yaml)
     definition.parse()
-    from pprint import pprint
 
-    pprint(definition.paths)
     assert len(definition.paths) == 13
-    # required_schemas = ["Address", "ApiResponse", "Category", "Customer", "Order", "Pet", "Tag", "User"]
-    # assert all(schema in definition.created_schemas for schema in required_schemas)
+    required_schemas = ["Address", "ApiResponse", "Category", "Customer", "Order", "Pet", "Tag", "User"]
+    assert all(schema in definition.created_schemas for schema in required_schemas)
 
 
 def test_create_properties():
@@ -75,7 +73,7 @@ def test_create_properties():
         Property(name="status", example="approved", type_=enum.Enum, enum_values=["placed", "approved", "delivered"]),
         Property(name="complete", example=None, type_=bool, enum_values=[]),
     ]
-    props = create_properties(data)
+    props = create_properties(data, OpenAPIDefinition({}))
     assert all(prop in results for prop in props)
 
 
@@ -94,4 +92,17 @@ def test_extract_components_parameters(openapi_example_yaml):
 
 def test_extract_reference_schema(openapi_example_yaml):
     definition = OpenAPIDefinition(openapi_example_yaml)
-    assert definition._extract_reference("#/components/schemas/Error")
+    schema = OpenAPIDefinition.extract_reference(definition, "#/components/schemas/Error")
+    assert schema.name == "Error"
+    assert schema.typ == SchemaType.OBJECT
+    assert len(schema.properties) == 3
+    assert len(schema.required_fields) == 2
+    assert definition.created_schemas["Error"] == schema
+
+
+def test_extract_invalid_reference_schema(subtests: pytest.Subtests, openapi_example_yaml):
+    definition = OpenAPIDefinition(openapi_example_yaml)
+    for invalid_ref in ("", "#/components/schemas/NotExisting", "components/Error/schemas", "lorem/ipsum"):
+        with subtests.test(invalid_ref=invalid_ref):
+            schema = OpenAPIDefinition.extract_reference(definition, invalid_ref)
+            assert schema is None
