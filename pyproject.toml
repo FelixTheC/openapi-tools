@@ -4,10 +4,10 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.13"
 dependencies = [
-    "pytest>=8.4.2",
+    "pytest>=9.0.1",
     "pyyaml",
-    "ruff",
-    "black",
+    "ruff>=0.14.7",
+    "black>=25.11.0",
     "isort",
     "djangorestframework", # check if we can make this optional
 ]
