@@ -27,5 +27,6 @@ jobs:
     - name: Bump version
       run: uv version ${{ github.ref_name }}
     - name: Build and publish
-      run: uv build
-        # uv publish --token ${{ secrets.PYPI_TOKEN }}
+      run: |
+        uv build
+        uv publish --token ${{ secrets.PYPI_TOKEN }}
