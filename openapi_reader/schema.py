@@ -3,7 +3,9 @@ import datetime as dt
 import typing
 from collections import defaultdict
 from dataclasses import dataclass
+from idlelib.debugobj_r import remote_object_tree_item
 from typing import Literal, Optional
+from unittest import case
 
 from openapi_reader.utils import HTTPResponse, convert_camel_case_to_snake_case, to_class_name
 
@@ -16,6 +18,21 @@ class SchemaType(enum.Enum):
     ARRAY = "array"
     OBJECT = "object"
 
+    def to_python_type(self) -> object:
+        match self:
+            case SchemaType.STRING:
+                return str
+            case SchemaType.INTEGER:
+                return int
+            case SchemaType.NUMBER:
+                return float
+            case SchemaType.BOOLEAN:
+                return bool
+            case SchemaType.ARRAY:
+                return list
+            case SchemaType.OBJECT:
+                return dict
+
 
 DEFAULT_PROPERTIES = ("readOnly", "nullable", "default", "writeOnly", "deprecated")
 
@@ -25,6 +42,14 @@ ADDITIONAL_PROPERTIES = {
     "number": ("minimum", "maximum", "format", "multipleOf") + DEFAULT_PROPERTIES,
     "array": ("minItems", "maxItems", "uniqueItems") + DEFAULT_PROPERTIES,
     "object": ("minProperties", "maxProperties") + DEFAULT_PROPERTIES,
+}
+
+PYTHON_TYPE_MAPPING = {
+    str: "string",
+    int: "integer",
+    float: "number",
+    list: "array",
+    dict: "object",
 }
 
 
@@ -287,7 +312,7 @@ class OpenAPIDefinition:
             self.created_schemas[key] = Schema(
                 name=key,
                 properties=create_properties(value, self),
-                typ=SchemaType(value["type"]),
+                typ=SchemaType(value.get("type", "object")),
                 required_fields=set(value.get("required", [])),
             )
 
@@ -299,6 +324,8 @@ class OpenAPIDefinition:
         for path, methods in required_paths.items():
             method_data = []
             for method, data in methods.items():
+                if method not in ("get", "post", "put", "delete"):
+                    continue
                 request_schema_name = (
                     data.get("requestBody", {})
                     .get("content", {})
@@ -311,20 +338,22 @@ class OpenAPIDefinition:
                     request_schema_def = (
                         data.get("requestBody", {}).get("content", {}).get("application/json", {}).get("schema", {})
                     )
-                    request_schema = Schema(
-                        name="",
-                        properties=[
-                            Property(
-                                name="",
-                                example=request_schema_def.get("default", ""),
-                                type_=request_schema_def.get("type", ""),
-                                enum_values=request_schema_def.get("enum", []),
-                            )
-                        ],
-                        # TODO fix me
-                        typ=SchemaType(request_schema_def.get("type", "object")),
-                        required_fields=request_schema_def.get("required", []),
-                    )
+                    # TODO fix me and handle allOf, anyOf, etc
+                    request_schema = Schema(name="", properties=[], typ=SchemaType("object"), required_fields=set())
+                    # request_schema = Schema(
+                    #     name="",
+                    #     properties=[
+                    #         Property(
+                    #             name="",
+                    #             example=request_schema_def.get("default", ""),
+                    #             type_=request_schema_def.get("type", ""),
+                    #             enum_values=request_schema_def.get("enum", []),
+                    #         )
+                    #     ],
+                    #     # TODO fix me
+                    #     typ=SchemaType(request_schema_def.get("type", "object")),
+                    #     required_fields=request_schema_def.get("required", []),
+                    # )
                 else:
                     request_schema = self.created_schemas[request_schema_name]
                 responses = data.get("responses", {})
@@ -404,7 +433,7 @@ class OpenAPIDefinition:
     def _extract_security_schemes(self):
         security_schemes = self.__openapi_data.get("components", {}).get("securitySchemes", {})
         for name, scheme in security_schemes.items():
-            match scheme["type"]:
+            match scheme.get("scheme", scheme["type"]):
                 case "apiKey":
                     self.auth_schemes[name] = SecurityScheme(type=AuthType.API_KEY, auth=API_KEY_AUTH)
                     self.auth_schemes[name].auth.name = scheme.get("name", API_KEY_AUTH.name)
@@ -422,6 +451,7 @@ class OpenAPIDefinition:
                     if scopes:
                         OAUTH2_AUTH.scopes = set(scopes.keys())
                 case _:
+                    print(scheme)
                     print(f"Unknown security scheme: {name}")
 
     def _get_security_schemas(self, data: list) -> list[SecurityScheme]:
@@ -566,26 +596,39 @@ def create_property(name: str, data: dict, definition: OpenAPIDefinition) -> Pro
         prop.type = enum.Enum
     if prop.type == list:
         item_ref = data.get("items").get("$ref")
-        prop.ref = OpenAPIDefinition.extract_reference(definition, item_ref)
+        if item_ref:
+            prop.ref = OpenAPIDefinition.extract_reference(definition, item_ref)
+        else:
+            prop.ref = create_item_schema(data["items"], definition.created_schemas)
     if "$ref" in data:
         prop.ref = OpenAPIDefinition.extract_reference(definition, data["$ref"])
 
     if data_type:
         for attribute in ADDITIONAL_PROPERTIES.get(data_type, []):
             if attribute in data:
-                prop.additional_requirements[attribute] = data[attribute]
+                if attribute in ("pattern", "format"):
+                    prop.additional_requirements[attribute] = f"'{data[attribute]}'"
+                else:
+                    prop.additional_requirements[attribute] = data[attribute]
 
     return prop
 
 
 def create_properties(data: dict, definition: OpenAPIDefinition) -> list[Property]:
-    return [create_property(key, value, definition) for key, value in data.get("properties", {}).items()]
+    res = []
+    for key, value in data.get("properties", {}).items():
+        res.append(create_property(key, value, definition))
+
+    return res
 
 
 def create_parameters(data: list, existing_schemas: dict = {}) -> list[QueryParam]:
     res: list[QueryParam] = []
 
     for obj in data:
+        if "schema" not in obj:
+            continue
+
         properties = []
         prop = Property(
             name="",

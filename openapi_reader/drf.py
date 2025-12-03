@@ -11,6 +11,8 @@ from openapi_reader.schema import (
     SchemaType,
     ApiPath,
     AuthType,
+    ADDITIONAL_PROPERTIES,
+    PYTHON_TYPE_MAPPING,
 )
 from openapi_reader.utils import (
     HTTPResponse,
@@ -21,13 +23,14 @@ from openapi_reader.utils import (
 )
 
 SERIALIZERS = {
-    "str": "serializers.CharField()",  # can be extended
-    "email": "serializers.EmailField()",
-    "datetime": "serializers.DateTimeField()",
-    "int": "serializers.IntegerField()",
-    "float": "serializers.FloatField()",
-    "enum": "serializers.CharField()",
-    "bool": "serializers.BooleanField()",
+    "str": "serializers.CharField",
+    "email": "serializers.EmailField",
+    "datetime": "serializers.DateTimeField",
+    "int": "serializers.IntegerField",
+    "float": "serializers.FloatField",
+    "enum": "serializers.CharField",
+    "bool": "serializers.BooleanField",
+    "regex": "serializers.RegexField",
 }
 
 INITIAL_FILE_INPUTS = ["from rest_framework import serializers"]
@@ -161,48 +164,119 @@ def to_drf_status_code(code: HTTPResponse) -> str:
             return ""
 
 
+def create_serializer_additional_parameters(prop: Property) -> list[str] | None:
+    function_params = []
+    if not hasattr(prop.type, "__name__"):
+        return None
+    for elem in ADDITIONAL_PROPERTIES.get(PYTHON_TYPE_MAPPING.get(prop.type, ""), []):
+        if data := prop.additional_requirements.get(elem):
+            function_params.append(f"{convert_camel_case_to_snake_case(elem)}={data}")
+
+    if function_params:
+        return function_params
+    return None
+
+
 def serializer_func_from_property_type(prop: Property) -> str:
+    serializer_class = ""
+    function_params = []
+    function_params_str = "()"
+
     if not hasattr(prop.type, "__name__"):
         if prop.ref:
-            return f"{prop.ref.name.title()}Serializer()"
-        raise ValueError
-    match prop.type.__name__.lower():
-        case "list":
-            if prop.ref.name:
-                return f"{prop.ref.name.title()}Serializer(many=True)"
-            if isinstance(prop.ref, Property):
-                return SERIALIZERS[prop.ref.type.__name__.lower()]
-            return SERIALIZERS[prop.ref.properties[0].type.__name__.lower()]
-        case "str":
-            if prop.example and ("@" in prop.example or "email" in prop.name):
-                return SERIALIZERS["email"]
-            return SERIALIZERS["str"]
-        case "datetime" | "date":
-            return SERIALIZERS["datetime"]
-        case "int":
-            return SERIALIZERS["int"]
-        case "float":
-            return SERIALIZERS["float"]
-        case "enum" | "Enum":
-            return SERIALIZERS["enum"]
-        case "bool":
-            return SERIALIZERS["bool"]
-        case _:
-            if prop.ref:
-                return f"{prop.ref.name.title()}Serializer()"
+            if prop.ref.properties:
+                serializer_class = f"{prop.ref.name}Serializer"
+            else:
+                try:
+                    serializer_class = SERIALIZERS.get(prop.ref.typ.to_python_type().__name__.lower(), "str")
+                except AttributeError:
+                    return "None"
+        else:
+            print(f"Unknown property type: {prop}")
             return "None"
+    else:
+        if additional_params := create_serializer_additional_parameters(prop):
+            function_params.extend(additional_params)
+        if function_params:
+            function_params_str = f"({', '.join(function_params)})"
+
+        match prop.type.__name__.lower():
+            case "list":
+                if hasattr(prop.ref, "name") and prop.ref.name:
+                    function_params.append("many=True")
+                    serializer_class = f"{prop.ref.name.title()}Serializer"
+                elif isinstance(prop.ref, Property):
+                    return f"serializers.ListField(child={SERIALIZERS[prop.ref.type.__name__.lower()]}{function_params_str})"
+                else:
+                    try:
+                        serializer_class = SERIALIZERS[prop.ref.properties[0].type.__name__.lower()]
+                    except AttributeError:
+                        serializer_class = "serializers.ListField"
+            case "str":
+                if prop.example and ("@" in prop.example or "email" in prop.name):
+                    serializer_class = SERIALIZERS["email"]
+                elif "pattern" in prop.additional_requirements:
+                    data = {obj[0]: obj[1] for obj in [val.split("=") for val in function_params]}
+                    function_params = [f"{key}={val}" for key, val in data.items() if key != "pattern"]
+                    function_params[0] = data["pattern"]
+                    function_params_str = f"({', '.join(function_params)})"
+                    serializer_class = SERIALIZERS["regex"]
+                else:
+                    serializer_class = SERIALIZERS["str"]
+            case "datetime" | "date":
+                serializer_class = SERIALIZERS["datetime"]
+            case "int":
+                serializer_class = SERIALIZERS["int"]
+            case "float":
+                serializer_class = SERIALIZERS["float"]
+            case "enum" | "Enum":
+                serializer_class = SERIALIZERS["enum"]
+            case "bool":
+                serializer_class = SERIALIZERS["bool"]
+            case _:
+                if prop.ref:
+                    serializer_class = f"{prop.ref.name.title()}Serializer"
+                else:
+                    serializer_class = "None"
+    return f"{serializer_class}{function_params_str}"
 
 
-def schema_to_drf(schema: Schema) -> str:
+def schema_to_drf(schema_name: str, schema: Schema) -> str:
     """
     Converts the openapi schema to the body of a Serializer class from django-rest-framework
+    :param schema_name: the name of the schema, used for the class name
     :param schema: a Schema object from the openapi definition
     :return: the string body for django-rest-framework serializer class
     """
+
+    if not schema.properties and not schema.combined_schemas:
+        return ""
+
     properties: list[str] = []
     for prop in schema.properties:
         properties.append(f"{prop.name.lower()} = {serializer_func_from_property_type(prop)}")
-    return f"\n{INDENT}".join(properties)
+
+    class_inheritance: list[str] = []
+    if schema.combined_schemas and "allOf" in schema.combined_schemas:
+        for combined_schema in schema.combined_schemas["allOf"]:
+            if combined_schema.name:
+                class_inheritance.append(combined_schema.name + "Serializer")
+            else:
+                for prop in combined_schema.properties:
+                    properties.append(f"{prop.name.lower()} = {serializer_func_from_property_type(prop)}")
+    else:
+        class_inheritance.append("serializers.Serializer")
+
+    class_inheritance_str = ", ".join(class_inheritance)
+
+    schema_body = f"\n{INDENT}".join(properties)
+    if not schema_body:
+        schema_body = "pass"
+
+    return f"""
+class {schema_name}Serializer({class_inheritance_str}):
+    {schema_body}
+    """
 
 
 # maybe return path to file instead of `None`
@@ -211,11 +285,10 @@ def create_serializer_file(
 ) -> None:
     schemas: list[str] = []
     for schema_name, schema in definition.created_schemas.items():
-        schema_body = schema_to_drf(schema)
-        schema_def = f"""
-class {schema_name}Serializer(serializers.Serializer):
-    {schema_body}
-"""
+        schema_def = schema_to_drf(schema_name, schema)
+        if not schema_def:
+            continue
+
         if refs := schema.get_refs():
             min_idx = len(schemas)
             for ref in refs:
@@ -226,7 +299,10 @@ class {schema_name}Serializer(serializers.Serializer):
 
             schemas.insert(min_idx + 1, schema_def)
         else:
-            schemas.insert(0, schema_def)
+            if "serializers.Serializer" not in schema_def:
+                schemas.append(schema_def)
+            else:
+                schemas.insert(0, schema_def)
 
     write_data_to_file(
         schemas,
