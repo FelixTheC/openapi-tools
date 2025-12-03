@@ -3,11 +3,9 @@ import datetime as dt
 import typing
 from collections import defaultdict
 from dataclasses import dataclass
-from idlelib.debugobj_r import remote_object_tree_item
 from typing import Literal, Optional
-from unittest import case
 
-from openapi_reader.utils import HTTPResponse, convert_camel_case_to_snake_case, to_class_name
+from py_openapi_tools.utils import HTTPResponse, convert_camel_case_to_snake_case, to_class_name
 
 
 class SchemaType(enum.Enum):

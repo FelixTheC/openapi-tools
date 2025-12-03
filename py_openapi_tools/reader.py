@@ -1,10 +1,8 @@
-import pprint
 from pathlib import Path
 import yaml
 import click
 
-from openapi_reader.schema import OpenAPIDefinition
-from openapi_reader.utils import Concurrency
+from py_openapi_tools.schema import OpenAPIDefinition
 
 
 def read_openapi_schema(file: Path) -> dict | None:
@@ -34,14 +32,14 @@ def main(openapifile: Path, export_folder: Path | None = None, framework: str = 
     use_tempdir = export_folder is None
 
     if framework == "drf":
-        from openapi_reader.drf import create_view_file, create_serializer_file, create_urls_file
+        from py_openapi_tools.drf import create_view_file, create_serializer_file, create_urls_file
 
         create_serializer_file(definition, export_folder=export_folder, use_tempdir=use_tempdir)
         create_view_file(definition, export_folder=export_folder, use_tempdir=use_tempdir)
         create_urls_file(definition, export_folder=export_folder, use_tempdir=use_tempdir)
 
     if framework == "fastapi":
-        from openapi_reader.fastapi import create_view_file, create_serializer_file
+        from py_openapi_tools.fastapi import create_view_file, create_serializer_file
 
         create_serializer_file(
             definition,
@@ -49,7 +47,3 @@ def main(openapifile: Path, export_folder: Path | None = None, framework: str = 
             use_tempdir=use_tempdir,
         )
         create_view_file(definition, export_folder=export_folder, use_tempdir=use_tempdir)
-
-
-if __name__ == "__main__":
-    pprint.pprint(read_openapi_schema(Path("../tests/openapi.yaml")))

@@ -2,7 +2,7 @@ from pathlib import Path
 from string import Template
 from typing import Optional
 
-from openapi_reader.schema import (
+from py_openapi_tools.schema import (
     OpenAPIDefinition,
     Property,
     AuthType,
@@ -12,7 +12,7 @@ from openapi_reader.schema import (
     ApiPath,
     SecurityScheme,
 )
-from openapi_reader.utils import (
+from py_openapi_tools.utils import (
     write_data_to_file,
     INDENT,
     operation_id_to_function_name,

@@ -2,7 +2,7 @@ from pathlib import Path
 from string import Template
 from typing import Optional
 
-from openapi_reader.schema import (
+from py_openapi_tools.schema import (
     OpenAPIDefinition,
     Schema,
     Property,
@@ -14,7 +14,7 @@ from openapi_reader.schema import (
     ADDITIONAL_PROPERTIES,
     PYTHON_TYPE_MAPPING,
 )
-from openapi_reader.utils import (
+from py_openapi_tools.utils import (
     HTTPResponse,
     convert_camel_case_to_snake_case,
     to_class_name,
