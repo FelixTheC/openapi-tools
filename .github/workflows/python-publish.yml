@@ -25,7 +25,7 @@ jobs:
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
     - name: Bump version
-      run: uv version ${{ github.ref }}
+      run: uv version ${{ github.ref_name }}
     - name: Build and publish
       run: uv build
         # uv publish --token ${{ secrets.PYPI_TOKEN }}
