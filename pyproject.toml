@@ -16,6 +16,9 @@ dependencies = [
     "hatchling>=1.28.0",
 ]
 
+[project.scripts]
+py-openapi-tools = "py_openapi_tools.reader:main"
+
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
 exclude = [
