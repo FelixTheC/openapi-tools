@@ -1,6 +1,7 @@
 import enum
 import datetime as dt
 import typing
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import Literal, Optional
 
@@ -45,6 +46,11 @@ class Property:
         self.additional_requirements = additional_requirements or {}
 
 
+class CombinedSchema(typing.TypedDict):
+    kind: Literal["oneOf", "anyOf", "allOf"]
+    schemas: tuple["Schema", ...]
+
+
 @dataclass(slots=True)
 class Schema:
     name: str
@@ -53,6 +59,7 @@ class Schema:
     required_fields: set[str]
     nullable_fields: set[str]
     read_only_fields: set[str]
+    combined_schemas: Optional[CombinedSchema] = None
 
     def __init__(
         self,
@@ -69,6 +76,7 @@ class Schema:
         self.required_fields = required_fields
         self.nullable_fields = nullable_fields or set()
         self.read_only_fields = read_only_fields or set()
+        self.combined_schemas = None
 
     def get_refs(self) -> list[str]:
         refs = []
@@ -272,14 +280,19 @@ class OpenAPIDefinition:
     def _extract_schemas(self):
         required_schemas = self.__openapi_data["components"]["schemas"]
         for key, value in required_schemas.items():
+            combined_schemas = defaultdict(tuple)
             if "type" not in value:
-                continue
+                combined_schemas = extract_combined_schemas(value, self)
+
             self.created_schemas[key] = Schema(
                 name=key,
                 properties=create_properties(value, self),
                 typ=SchemaType(value["type"]),
                 required_fields=set(value.get("required", [])),
             )
+
+            if combined_schemas:
+                self.created_schemas[key].combined_schemas = combined_schemas
 
     def _extract_paths(self):
         required_paths = self.__openapi_data["paths"]
@@ -453,14 +466,54 @@ class OpenAPIDefinition:
         except KeyError:
             return None
 
-        schema = Schema(
-            name=name,
-            properties=create_properties(data, definition),
-            typ=SchemaType(data["type"]),
-            required_fields=set(data.get("required", [])),
-        )
-        definition.created_schemas[name] = schema
+        combined_schemas = defaultdict(tuple)
+
+        if "type" not in data:
+            combined_schemas = extract_combined_schemas(data, definition)
+
+        if combined_schemas:
+            schema = Schema(
+                name=name,
+                properties={},
+                typ=SchemaType.OBJECT,
+                required_fields=set(data.get("required", [])),
+            )
+            schema.combined_schemas = combined_schemas
+        else:
+            schema = Schema(
+                name=name,
+                properties=create_properties(data, definition),
+                typ=SchemaType(data["type"]),
+                required_fields=set(data.get("required", [])),
+            )
+            definition.created_schemas[name] = schema
+
         return schema
+
+
+def extract_combined_schemas(data: dict, definition: OpenAPIDefinition) -> dict[str, tuple[Schema | dict | None, ...]]:
+    combined_schemas = defaultdict(tuple)
+    if "discriminator" in data:
+        combined_schemas["discriminator"] = (data["discriminator"],)
+    for obj in ("oneOf", "anyOf", "allOf"):
+        if obj in data:
+            for elem in data[obj]:
+                if "$ref" in elem:
+                    schema_obj = OpenAPIDefinition.extract_reference(definition, elem["$ref"])
+                    combined_schemas[obj] = (*combined_schemas[obj], schema_obj)
+                else:
+                    schema_obj = create_schema_from_data(elem, definition)
+                    combined_schemas[obj] = (*combined_schemas[obj], schema_obj)
+    return combined_schemas
+
+
+def create_schema_from_data(data: dict, definition: OpenAPIDefinition) -> Schema:
+    return Schema(
+        name="",
+        properties=create_properties(data, definition),
+        typ=SchemaType(data["type"]),
+        required_fields=set(data.get("required", [])),
+    )
 
 
 def convert_type(typ: str, value_format: str | None = None):

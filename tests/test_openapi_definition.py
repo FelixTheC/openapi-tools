@@ -100,6 +100,15 @@ def test_extract_reference_schema(openapi_example_yaml):
     assert definition.created_schemas["Error"] == schema
 
 
+def test_extract_reference_schema_with_combined_schemas(openapi_example_yaml):
+    definition = OpenAPIDefinition(openapi_example_yaml)
+    schema = OpenAPIDefinition.extract_reference(definition, "#/components/schemas/PaymentStatus")
+
+    assert schema.name == "PaymentStatus"
+    assert schema.typ == SchemaType.OBJECT
+    assert len(schema.combined_schemas["oneOf"]) == 3
+
+
 def test_extract_invalid_reference_schema(subtests: pytest.Subtests, openapi_example_yaml):
     definition = OpenAPIDefinition(openapi_example_yaml)
     for invalid_ref in ("", "#/components/schemas/NotExisting", "components/Error/schemas", "lorem/ipsum"):
