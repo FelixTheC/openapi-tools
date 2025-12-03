@@ -338,22 +338,20 @@ class OpenAPIDefinition:
                     request_schema_def = (
                         data.get("requestBody", {}).get("content", {}).get("application/json", {}).get("schema", {})
                     )
-                    # TODO fix me and handle allOf, anyOf, etc
-                    request_schema = Schema(name="", properties=[], typ=SchemaType("object"), required_fields=set())
-                    # request_schema = Schema(
-                    #     name="",
-                    #     properties=[
-                    #         Property(
-                    #             name="",
-                    #             example=request_schema_def.get("default", ""),
-                    #             type_=request_schema_def.get("type", ""),
-                    #             enum_values=request_schema_def.get("enum", []),
-                    #         )
-                    #     ],
-                    #     # TODO fix me
-                    #     typ=SchemaType(request_schema_def.get("type", "object")),
-                    #     required_fields=request_schema_def.get("required", []),
-                    # )
+                    request_schema = Schema(
+                        name="",
+                        properties=[
+                            Property(
+                                name="",
+                                example=request_schema_def.get("default", ""),
+                                type_=request_schema_def.get("type", ""),
+                                enum_values=request_schema_def.get("enum", []),
+                            )
+                        ],
+                        # TODO fix me
+                        typ=SchemaType(request_schema_def.get("type", "object")),
+                        required_fields=request_schema_def.get("required", []),
+                    )
                 else:
                     request_schema = self.created_schemas[request_schema_name]
                 responses = data.get("responses", {})
